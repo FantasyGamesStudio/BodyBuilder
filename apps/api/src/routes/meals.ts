@@ -161,6 +161,7 @@ export const mealsRoutes: FastifyPluginAsync = async (app) => {
       with: { food: true },
     });
     if (!existing) return reply.status(404).send({ error: "entry_not_found" });
+    if (!existing.food) return reply.status(422).send({ error: "entry_has_no_food" });
 
     const { quantityG, mealSlot } = body.data;
     const updates: Record<string, unknown> = {};

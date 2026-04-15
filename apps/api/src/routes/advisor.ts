@@ -383,6 +383,7 @@ export const advisorRoutes: FastifyPluginAsync = async (app) => {
       const toolResults: OpenAI.Chat.ChatCompletionMessageParam[] = [assistantMessage];
 
       for (const toolCall of assistantMessage.tool_calls) {
+        if (!("function" in toolCall)) continue;
         if (toolCall.function.name !== "add_meal_entries") continue;
 
         const args = JSON.parse(toolCall.function.arguments) as {
