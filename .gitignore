@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+
+# Build
+dist/
+build/
+.next/
+.turbo/
+
+# Env
+.env
+.env.local
+.env.*.local
+apps/api/.env
+apps/web/.env
+
+# Certificados SSL de desarrollo (Vite basicSsl)
+*.pem
+*.key
+*.crt
+
+# IDE
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Logs / debug
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Test / coverage
+coverage/
+
+# Conversaciones y archivos internos del IDE
+cursor/

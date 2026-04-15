@@ -1,0 +1,51 @@
+---
+description: Convenciones del backend (Fastify + Drizzle) y mantenimiento de tests
+globs: apps/api/**/*.ts
+alwaysApply: false
+---
+
+# API — Convenciones y tests
+
+## Estructura de rutas
+Cada ruta sigue este patrón:
+```typescript
+app.post("/v1/resource", {
+  schema: { tags, summary, security: [{ bearerAuth: [] }], body: {...}, response: {...} },
+  preHandler: app.authenticate,
+}, async (req, reply) => { ... });
+```
+- Prefijo siempre `/v1/...`
+- Las rutas se agrupan en plugins (`FastifyPluginAsync`) en `src/routes/`.
+- Nunca importar `db` directamente en rutas; usar el singleton de `src/db/index.ts`.
+
+## Drizzle ORM
+- Schema en `src/db/schema.ts` — **añadir toda entidad nueva aquí primero**.
+- Queries con `db.query.<tabla>.findMany/findFirst` para reads con relaciones.
+- `db.insert(...).values(...).returning()` para inserts que devuelven el registro.
+- Usar `and()`, `eq()`, `gte()` etc. de `drizzle-orm` — no SQL raw salvo casos excepcionales.
+
+## Manejo de errores
+```typescript
+// ✅ Siempre capturar errores de OpenAI (pueden fallar silenciosamente)
+try {
+  const res = await openai.chat.completions.create({...});
+} catch (err) {
+  const msg = err instanceof Error ? err.message : String(err);
+  return reply.status(502).send({ error: `Error IA: ${msg}` });
+}
+```
+
+## Tests — ubicación y obligaciones
+```
+apps/api/src/__tests__/
+  integration/   → pruebas de endpoints (auth, meals, onboarding)
+  unit/          → lógica pura (nutrition.ts, tdee.ts)
+  helpers/       → app de test, helpers de BD, globalSetup
+```
+- **Cuando modifiques una ruta existente**: revisar si hay test de integración y actualizarlo.
+- **Cuando añadas un endpoint nuevo**: añadir al menos un test de integración feliz + uno de error 401.
+- **Cuando añadas lógica de cálculo** en `src/lib/`: añadir test unitario.
+- Ejecutar tests con `cd apps/api && npm test` antes de dar por terminado un cambio.
+
+## Variables de entorno
+Definidas en `src/lib/env.ts` con Zod. Añadir toda variable nueva ahí **y** en `.env.example`.

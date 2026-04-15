@@ -1,0 +1,39 @@
+---
+description: Contexto general del proyecto BodyBuilder — stack, estado actual, documentos de diseño y obligaciones de mantenimiento
+alwaysApply: true
+---
+
+# BodyBuilder — Contexto del proyecto
+
+## Stack
+- **Monorepo pnpm** con `apps/api` (Fastify + Drizzle ORM + PostgreSQL + OpenAI) y `apps/web` (React + Vite + Tailwind + shadcn/ui + react-router).
+- Dev: API en `localhost:3000`, frontend en `localhost:5173` (HTTPS con cert autofirmado para acceso móvil).
+- Auth: JWT (Bearer). Todos los endpoints protegidos usan `preHandler: app.authenticate`.
+
+## Estado de implementación actual
+- **H1 completo**: auth, onboarding (TDEE Mifflin–St Jeor), meal slots, registro manual, workouts, nutrition targets.
+- **AI Advisor operativo** (adelanto de H2): asesor por texto/audio (Whisper)/imagen (GPT-4o vision), recurring foods, deferred deletion.
+- **Pendiente**: social, gamificación, evaluaciones, integración pasos, notificaciones push — ver `deferred_backlog.md`.
+
+## Documentos de diseño (leer antes de decisiones de arquitectura)
+| Archivo | Contenido |
+|---------|-----------|
+| `functional_decisions_v1.md` | Reglas de negocio y UX acordadas (fuente de verdad funcional) |
+| `technical_design_v0.md` | Arquitectura, modelo de datos v0, contrato API, flujos críticos |
+| `deferred_backlog.md` | Lo que **NO** se implementa aún — no añadir sin discutirlo |
+| `roadmap_analista_tecnico.md` | Fases H1–H6 con orden de entrega |
+| `README.md` | Introducción y guía de arranque |
+
+## Archivos clave
+- `apps/api/src/db/schema.ts` — esquema Drizzle (fuente de verdad del modelo de datos)
+- `apps/api/src/routes/advisor.ts` — rutas del asesor IA (complejo, ~650 líneas)
+- `apps/web/src/lib/api.ts` — cliente HTTP del frontend (todos los métodos de API)
+- `apps/web/src/pages/DashboardPage.tsx` — página principal con asesor integrado
+
+## Reglas obligatorias para agentes
+
+1. **Leer los documentos de diseño** antes de añadir entidades, endpoints o cambios de arquitectura. Si hay conflicto entre el código actual y los docs, señalarlo.
+2. **Actualizar `README.md`** cuando cambie el modo de arrancar la app, las variables de entorno o la estructura de carpetas.
+3. **No implementar ítems del `deferred_backlog.md`** salvo que el usuario lo pida explícitamente.
+4. **Mantener `apps/api/src/db/schema.ts` como fuente única** del modelo de datos; cualquier campo nuevo va aquí antes que en ningún otro sitio.
+5. Responder siempre en **español**.

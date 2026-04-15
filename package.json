@@ -1,0 +1,9 @@
+{
+  "name": "bodybuilder",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "api": "pnpm --filter @bodybuilder/api dev",
+    "web": "pnpm --filter @bodybuilder/web dev"
+  }
+}

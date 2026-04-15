@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Dark mode only — variables en modo oscuro por defecto */
+    --background: 240 10% 4%;        /* #0a0a0f */
+    --foreground: 0 0% 98%;
+
+    --card: 240 8% 8%;               /* #13131a */
+    --card-foreground: 0 0% 98%;
+
+    --border: 240 6% 14%;
+    --input: 240 6% 12%;
+    --ring: 262 84% 58%;             /* violeta */
+
+    --primary: 262 84% 58%;          /* #7c3aed */
+    --primary-foreground: 0 0% 100%;
+
+    --muted: 240 6% 14%;
+    --muted-foreground: 240 5% 55%;
+
+    --accent: 262 84% 58%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --radius: 0.75rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Scrollbar sutil en dark */
+  ::-webkit-scrollbar {
+    width: 4px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-border rounded-full;
+  }
+}
+
+/* Animación de entrada suave para páginas */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-up {
+  animation: fade-up 0.3s ease-out forwards;
+}

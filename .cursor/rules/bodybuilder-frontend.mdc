@@ -1,0 +1,52 @@
+---
+description: Convenciones del frontend React — componentes, cliente API, Tailwind y accesibilidad móvil
+globs: apps/web/**/*.{ts,tsx}
+alwaysApply: false
+---
+
+# Frontend — Convenciones
+
+## Arquitectura de páginas
+```
+src/pages/          → una página por ruta (DashboardPage, LogMealPage, etc.)
+src/components/ui/  → componentes shadcn/ui (Button, Card, Input…)
+src/components/     → componentes compartidos propios
+src/lib/api.ts      → TODO el acceso HTTP al backend (único punto de contacto)
+src/lib/utils.ts    → utilidades (cn, etc.)
+```
+
+## Cliente API (`src/lib/api.ts`)
+- **Toda llamada al backend** pasa por los objetos `advisorApi`, `mealsApi`, `onboardingApi`, etc.
+- No llamar a `fetch` directamente en páginas/componentes.
+- Al añadir un endpoint backend: añadir el método correspondiente aquí.
+- El helper `request()` sólo añade `Content-Type: application/json` si hay `body` (crítico para DELETE sin body).
+
+## Tailwind — colores dinámicos
+```tsx
+// ❌ MAL: JIT no detecta clases generadas en runtime
+const color = isActive ? "bg-blue-400" : "bg-gray-400";
+<div className={color} />
+
+// ✅ BIEN: clases completas o hex inline para SVG
+<div className={isActive ? "bg-blue-400" : "bg-gray-400"} />
+// Para SVG/canvas usar colores hex directamente: stroke="#60a5fa"
+```
+
+## Inputs de media (móvil)
+- **Galería**: `<input type="file" accept="image/*" />` — sin `capture`.
+- **Cámara**: `<input type="file" accept="image/*" capture="environment" />` — fuerza cámara.
+- Usar **dos inputs separados** cuando se quieran ambas opciones (ver DashboardPage).
+- El micrófono requiere HTTPS; el servidor Vite ya está configurado con cert autofirmado.
+
+## Estado y efectos
+- Levantar estado al padre mínimo necesario; no usar contexto global salvo que varias páginas no relacionadas lo compartan.
+- Usar `useRef` para valores que no deben disparar re-render (timers, refs de MediaRecorder, sets de borrados pendientes).
+- Limpiar recursos en `useEffect` cleanup (MediaRecorder streams, pending deletions, etc.).
+
+## Macros — orden canónico
+Mostrar siempre en el orden: **Proteína → Carbohidratos → Grasas** (P / C / G) en toda la UI.
+
+## Al modificar una página
+1. Verificar lints con ReadLints tras el cambio.
+2. Si se añade una ruta nueva, registrarla en `src/App.tsx`.
+3. Si se añade un tipo de dato nuevo desde la API, añadir la interfaz en `src/lib/api.ts`.
