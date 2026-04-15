@@ -14,7 +14,6 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    ...(isDev ? { https: true as const } : {}),
     proxy: {
       "/v1": "http://localhost:3000",
       "/health": "http://localhost:3000",
