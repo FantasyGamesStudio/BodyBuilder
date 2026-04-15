@@ -15,7 +15,11 @@ export async function buildApp() {
   const app = Fastify({ logger: true });
 
   // ── Cross-cutting plugins ────────────────────────────────────────────────
-  await app.register(cors, { origin: true });
+  await app.register(cors, {
+    origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(",") : true,
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  });
   // swagger debe registrarse antes de las rutas
   await app.register(swaggerPlugin);
   await app.register(authPlugin);
