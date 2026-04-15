@@ -17,8 +17,7 @@ export async function buildApp() {
   // ── Cross-cutting plugins ────────────────────────────────────────────────
   await app.register(cors, {
     origin: "*",
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    strictPreflight: false,
   });
   // swagger debe registrarse antes de las rutas
   await app.register(swaggerPlugin);
