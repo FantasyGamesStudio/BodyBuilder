@@ -231,10 +231,18 @@ export const workoutLogs = pgTable("workout_logs", {
     .references(() => users.id, { onDelete: "cascade" }),
   /** Fecha del entrenamiento en zona horaria del usuario (YYYY-MM-DD) */
   workoutDate: date("workout_date").notNull(),
-  /** Kcal estimadas quemadas durante el entrenamiento */
-  kcalBurned: integer("kcal_burned").notNull(),
+  /** Kcal estimadas quemadas durante el entrenamiento (0 si solo planificado) */
+  kcalBurned: integer("kcal_burned").notNull().default(0),
   /** Descripción opcional: "Pesas 1h", "Carrera 5km"... */
   notes: text("notes"),
+  /**
+   * planned | done
+   * planned: el usuario ha marcado que va a entrenar (sin kcal aún)
+   * done: entrenamiento registrado con kcal
+   */
+  status: text("status").notNull().default("done"),
+  /** Hora aproximada planificada para entrenar (HH:MM), solo cuando status=planned */
+  plannedAt: text("planned_at"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

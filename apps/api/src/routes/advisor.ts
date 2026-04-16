@@ -144,7 +144,9 @@ async function buildSystemPrompt(userId: string, date: string): Promise<string> 
     }),
     { kcal: 0, proteinG: 0, fatG: 0, carbsG: 0 },
   );
-  const eatKcal = todayWorkouts.reduce((s, w) => s + w.kcalBurned, 0);
+  const doneWorkouts = todayWorkouts.filter((w) => w.status === "done" || !w.status);
+  const plannedWorkouts = todayWorkouts.filter((w) => w.status === "planned");
+  const eatKcal = doneWorkouts.reduce((s, w) => s + w.kcalBurned, 0);
   const kcalTarget = (target?.kcalTarget ?? 2000) + eatKcal;
   const remainingKcal = kcalTarget - consumed.kcal;
   const remainingProtein = (target?.proteinMinG ?? 0) - consumed.proteinG;
@@ -184,8 +186,13 @@ async function buildSystemPrompt(userId: string, date: string): Promise<string> 
   const goalModeLabel = GOAL_MODE_ES[goalMode] ?? goalMode;
   const goalAdvice = GOAL_MODE_ADVICE[goalMode] ?? "";
   const activityLevel = onboarding ? (ACTIVITY_ES[onboarding.activityLevel] ?? onboarding.activityLevel) : "?";
-  const isTrainingDay = todayWorkouts.length > 0;
-  const trainingNotes = todayWorkouts.map((w) => w.notes).filter(Boolean).join("; ");
+  const isTrainingDay = doneWorkouts.length > 0 || plannedWorkouts.length > 0;
+  const doneWorkoutNotes = doneWorkouts.map((w) => w.notes).filter(Boolean).join("; ");
+  const plannedWorkoutInfo = plannedWorkouts.map((w) => {
+    const time = w.plannedAt ? ` a las ${w.plannedAt}` : "";
+    const note = w.notes ? ` (${w.notes})` : "";
+    return `planificado${time}${note}`;
+  }).join("; ");
 
   const SLOT_NAMES: Record<string, string> = {
     breakfast: "Desayuno", lunch: "Comida", dinner: "Cena", snack: "Snack", other: "Otro",
@@ -211,7 +218,9 @@ PERFIL:
 OBJETIVO: ${goalModeLabel}
   Calorías diana: ${kcalTarget} kcal${eatKcal > 0 ? ` (base ${target?.kcalTarget ?? "?"} + ${eatKcal} kcal entreno)` : ""}
   Proteína mín: ${target?.proteinMinG ?? "?"}g | Carbos: ${target?.carbsG ?? "?"}g | Grasas: ${target?.fatMinG ?? "?"}–${target?.fatMaxG ?? "?"}g
-  ${isTrainingDay ? `HOY ES DÍA DE ENTRENO${trainingNotes ? `: ${trainingNotes}` : ""}` : "Hoy es día de descanso"}
+  ${doneWorkouts.length > 0 ? `ENTRENO YA REALIZADO${doneWorkoutNotes ? `: ${doneWorkoutNotes}` : ""}` : ""}
+  ${plannedWorkouts.length > 0 ? `ENTRENO PLANIFICADO: ${plannedWorkoutInfo} — usa esta información para aconsejar qué y cuándo comer ANTES y DESPUÉS del entreno` : ""}
+  ${!isTrainingDay ? "Hoy es día de descanso" : ""}
   ${goalAdvice}
 
 PROGRESO HOY (${date}):

@@ -217,6 +217,8 @@ export interface WorkoutLog {
   workoutDate: string;
   kcalBurned: number;
   notes: string | null;
+  status: "done" | "planned";
+  plannedAt: string | null;
   createdAt: string;
 }
 
@@ -315,8 +317,10 @@ export const mealsApi = {
 };
 
 export const workoutsApi = {
-  log: (data: { workoutDate: string; kcalBurned: number; notes?: string }) =>
+  log: (data: { workoutDate: string; kcalBurned: number; notes?: string; status?: "done" | "planned"; plannedAt?: string }) =>
     api.post<WorkoutLog>("/workouts", data),
+  patch: (id: string, data: { kcalBurned?: number; notes?: string; status?: "done" | "planned"; plannedAt?: string | null }) =>
+    api.patch<WorkoutLog>(`/workouts/${id}`, data),
   delete: (id: string) => api.delete<null>(`/workouts/${id}`),
 };
 

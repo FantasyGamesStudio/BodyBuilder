@@ -78,7 +78,7 @@ function CalorieRing({
   return (
     <div className="relative flex h-48 w-48 items-center justify-center">
       <svg width="192" height="192" viewBox="0 0 192 192" className="-rotate-90">
-        <circle cx="96" cy="96" r={r} fill="none" stroke="currentColor" strokeWidth="10" className="text-muted/20" />
+        <circle cx="96" cy="96" r={r} fill="none" stroke="currentColor" strokeWidth="10" className="text-muted/55" />
         {!noData && (
           <circle
             cx="96" cy="96" r={r} fill="none"
@@ -108,7 +108,7 @@ function CalorieRing({
             status === "yellow" ? "bg-yellow-500/15 text-yellow-400" :
             "bg-red-500/15 text-red-400",
           )}>
-            {status === "green" ? "En objetivo" : status === "yellow" ? "Fuera de rango" : "Muy lejos"}
+            {status === "green" ? "En objetivo" : status === "yellow" ? "Cerca del rango" : "Fuera de rango"}
           </span>
         )}
       </div>
@@ -141,7 +141,7 @@ function MacroRing({
       <div className="relative flex items-center justify-center" style={{ width: 72, height: 72 }}>
         <svg width="72" height="72" viewBox="0 0 72 72" className="-rotate-90">
           <circle cx="36" cy="36" r={r} fill="none" stroke="currentColor" strokeWidth="6"
-            className="text-muted/20" />
+            className="text-muted/55" />
           <circle
             cx="36" cy="36" r={r} fill="none"
             stroke={color} strokeWidth="6"
@@ -284,9 +284,11 @@ const ACTIVITIES = [
 
 function WorkoutForm({ date, onSave }: { date: string; onSave: (w: WorkoutLog) => void }) {
   const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<"plan" | "done">("plan");
   const [activityId, setActivityId] = useState<string>("");
   const [minutes, setMinutes] = useState("45");
   const [kcalOverride, setKcalOverride] = useState("");
+  const [plannedTime, setPlannedTime] = useState("18:00");
   const [saving, setSaving] = useState(false);
 
   const activity = ACTIVITIES.find((a) => a.id === activityId);
@@ -295,10 +297,196 @@ function WorkoutForm({ date, onSave }: { date: string; onSave: (w: WorkoutLog) =
     : 0;
   const kcalFinal = kcalOverride ? Number(kcalOverride) : estimatedKcal;
 
-  function handleSelectActivity(id: string) {
-    setActivityId(id);
-    setKcalOverride("");
+  function reset() {
+    setActivityId(""); setMinutes("45"); setKcalOverride(""); setOpen(false);
   }
+
+  async function handleSave() {
+    if (mode === "done" && (!kcalFinal || kcalFinal < 1)) return;
+    if (mode === "plan" && !activityId) return;
+    setSaving(true);
+    try {
+      const notes = activity ? `${activity.label}${minutes ? ` · ${minutes} min` : ""}` : undefined;
+      if (mode === "plan") {
+        const w = await workoutsApi.log({
+          workoutDate: date,
+          kcalBurned: 0,
+          notes,
+          status: "planned",
+          plannedAt: plannedTime,
+        });
+        onSave(w);
+      } else {
+        const w = await workoutsApi.log({
+          workoutDate: date,
+          kcalBurned: kcalFinal,
+          notes,
+          status: "done",
+        });
+        onSave(w);
+      }
+      reset();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => { setMode("plan"); setOpen(true); }}
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors"
+        >
+          <Dumbbell className="h-3.5 w-3.5" />
+          Planificar entreno
+        </button>
+        <span className="text-muted-foreground/30 text-xs">·</span>
+        <button
+          onClick={() => { setMode("done"); setOpen(true); }}
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          Registrar ya hecho
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <Card className="border-border/60">
+      <CardContent className="pt-4 pb-4 space-y-4">
+        {/* Toggle plan/done */}
+        <div className="flex items-center gap-1 bg-muted/30 rounded-xl p-1 self-start">
+          {(["plan", "done"] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              className={cn(
+                "px-3 py-1 rounded-lg text-xs font-semibold transition-all",
+                mode === m ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {m === "plan" ? "Planificar" : "Ya lo hice"}
+            </button>
+          ))}
+        </div>
+
+        {/* Hora planificada (solo en modo plan) */}
+        {mode === "plan" && (
+          <div className="flex items-center gap-3">
+            <div className="flex-1">
+              <p className="text-xs text-muted-foreground mb-1.5">Hora aproximada</p>
+              <Input
+                type="time"
+                value={plannedTime}
+                onChange={(e) => setPlannedTime(e.target.value)}
+                className="h-9"
+              />
+            </div>
+            <div className="pt-5 flex items-center gap-1.5 text-[11px] text-primary/80 bg-primary/10 rounded-xl px-3 py-2">
+              <Dumbbell className="h-3 w-3 shrink-0" />
+              <span>El asesor usará<br/>esta info hoy</span>
+            </div>
+          </div>
+        )}
+
+        {/* Selector de actividad */}
+        <div>
+          <p className="text-xs text-muted-foreground mb-2">
+            {mode === "plan" ? "¿Qué vas a hacer?" : "¿Qué has hecho?"}
+          </p>
+          <div className="grid grid-cols-5 gap-1.5">
+            {ACTIVITIES.map((a) => (
+              <button
+                key={a.id}
+                type="button"
+                onClick={() => { setActivityId(a.id); setKcalOverride(""); }}
+                className={cn(
+                  "flex flex-col items-center gap-1 rounded-xl p-2 text-center transition-all",
+                  activityId === a.id
+                    ? "bg-primary/15 ring-1 ring-primary"
+                    : "bg-muted/30 hover:bg-muted/60",
+                )}
+              >
+                <span className="text-lg leading-none">{a.icon}</span>
+                <span className="text-[10px] leading-tight text-muted-foreground">{a.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {activityId && (
+          <>
+            {/* Duración */}
+            {activity?.kcalPerMin !== undefined && activity.kcalPerMin > 0 && (
+              <div className="flex items-center gap-3">
+                <div className="flex-1">
+                  <p className="text-xs text-muted-foreground mb-1.5">Duración (minutos)</p>
+                  <Input
+                    type="number"
+                    value={minutes}
+                    onChange={(e) => { setMinutes(e.target.value); setKcalOverride(""); }}
+                    className="h-9"
+                    min={1} max={480}
+                  />
+                </div>
+                {mode === "done" && (
+                  <div className="text-center pt-5">
+                    <p className="text-2xl font-bold text-green-400 tabular-nums">{estimatedKcal}</p>
+                    <p className="text-[10px] text-muted-foreground">kcal est.</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Override kcal solo en modo done */}
+            {mode === "done" && (
+              <div>
+                <p className="text-xs text-muted-foreground mb-1.5">
+                  {activity?.kcalPerMin ? "¿Sabes las kcal exactas? (opcional)" : "kcal quemadas"}
+                </p>
+                <Input
+                  type="number"
+                  placeholder={activity?.kcalPerMin ? String(estimatedKcal) : "ej. 350"}
+                  value={kcalOverride}
+                  onChange={(e) => setKcalOverride(e.target.value)}
+                  className="h-9"
+                  min={1} max={5000}
+                />
+              </div>
+            )}
+
+            {/* Acciones */}
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                className="flex-1"
+                onClick={handleSave}
+                disabled={saving || (mode === "done" && !kcalFinal)}
+              >
+                {saving ? "Guardando…"
+                  : mode === "plan" ? "Planificar entreno"
+                  : `Guardar · ${kcalFinal} kcal`}
+              </Button>
+              <Button variant="outline" size="sm" onClick={reset}>Cancelar</Button>
+            </div>
+          </>
+        )}
+
+        {/* CTA si solo eligió hora pero no actividad en modo plan */}
+        {mode === "plan" && !activityId && (
+          <div className="flex gap-2">
+            <Button size="sm" className="flex-1" onClick={handleSave} disabled={saving}>
+              {saving ? "Guardando…" : "Solo marcar que entreno"}
+            </Button>
+            <Button variant="outline" size="sm" onClick={reset}>Cancelar</Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
   async function handleSave() {
     if (!kcalFinal || kcalFinal < 1) return;
@@ -828,8 +1016,8 @@ function MonthlyView({
             <p className="text-xs text-muted-foreground">{recorded} de {past} días registrados</p>
             <div className="flex items-center gap-2">
               {green > 0 && <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/15 text-green-400 font-medium">{green} objetivo</span>}
-              {yellow > 0 && <span className="text-[10px] px-2 py-0.5 rounded-full bg-yellow-500/15 text-yellow-400 font-medium">{yellow} rango</span>}
-              {red > 0 && <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-500/15 text-red-400 font-medium">{red} lejos</span>}
+              {yellow > 0 && <span className="text-[10px] px-2 py-0.5 rounded-full bg-yellow-500/15 text-yellow-400 font-medium">{yellow} cerca</span>}
+              {red > 0 && <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-500/15 text-red-400 font-medium">{red} fuera</span>}
             </div>
           </div>
 
@@ -887,8 +1075,8 @@ function MonthlyView({
           <div className="flex items-center justify-center gap-4 mt-3 pt-3 border-t border-border/30">
             {[
               { color: "bg-green-500", label: "En objetivo" },
-              { color: "bg-yellow-500", label: "Fuera de rango" },
-              { color: "bg-red-500", label: "Muy lejos" },
+              { color: "bg-yellow-500", label: "Cerca del rango" },
+              { color: "bg-red-500", label: "Fuera de rango" },
               { color: "bg-muted-foreground/20", label: "Sin registros" },
             ].map(({ color, label }) => (
               <div key={label} className="flex items-center gap-1.5">
@@ -899,9 +1087,7 @@ function MonthlyView({
           </div>
         </CardContent>
       </Card>
-    </div>
-  );
-}
+
 
 // ─── Vista semanal ────────────────────────────────────────────────────────────
 
@@ -1006,12 +1192,12 @@ function WeeklyView({
               )}
               {daysYellow > 0 && (
                 <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-yellow-500/15 text-yellow-400">
-                  {daysYellow} fuera de rango
+                  {daysYellow} cerca del rango
                 </span>
               )}
               {daysRed > 0 && (
                 <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-red-500/15 text-red-400">
-                  {daysRed} muy lejos
+                  {daysRed} fuera de rango
                 </span>
               )}
             </div>
@@ -1372,37 +1558,41 @@ export function DashboardPage() {
           <section className="space-y-4">
             <h2 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">Resumen del día</h2>
 
-            {/* Anillo */}
-            <div className="flex flex-col items-center py-2">
-              <CalorieRing
-                consumed={consumed.kcal}
-                target={effectiveKcalTarget}
-                rangeMin={target ? Math.round(effectiveKcalTarget * (1 - target.kcalGreenPct / 100)) : undefined}
-                rangeMax={target ? Math.round(effectiveKcalTarget * (1 + target.kcalGreenPct / 100)) : undefined}
-                status={kcalStatus}
-              />
-              {eatKcal > 0 && (
-                <p className={cn(
-                  "mt-1.5 text-xs font-medium",
-                  eatCountsTowardTarget ? "text-green-400" : "text-muted-foreground",
-                )}>
-                  {eatCountsTowardTarget
-                    ? `+${eatKcal} kcal quemadas · objetivo ampliado`
-                    : `${eatKcal} kcal quemadas · no modifica el objetivo`}
-                </p>
-              )}
-              {balanceInfo && (
-                <div className={cn("mt-2 flex items-center gap-1.5 text-xs font-semibold", balanceInfo.color)}>
-                  <span>{balanceInfo.label}</span>
-                  <span className="font-normal opacity-80">{balanceInfo.detail}</span>
-                </div>
-              )}
-            </div>
-
-            {/* Macros */}
+            {/* Anillo + Macros — una sola card unificada */}
             {target ? (
               <Card>
-                <CardContent className="pt-5 pb-4">
+                <CardContent className="pt-5 pb-4 space-y-4">
+                  {/* Anillo de calorías */}
+                  <div className="flex flex-col items-center">
+                    <CalorieRing
+                      consumed={consumed.kcal}
+                      target={effectiveKcalTarget}
+                      rangeMin={target ? Math.round(effectiveKcalTarget * (1 - target.kcalGreenPct / 100)) : undefined}
+                      rangeMax={target ? Math.round(effectiveKcalTarget * (1 + target.kcalGreenPct / 100)) : undefined}
+                      status={kcalStatus}
+                    />
+                    {eatKcal > 0 && (
+                      <p className={cn(
+                        "mt-1.5 text-xs font-medium",
+                        eatCountsTowardTarget ? "text-green-400" : "text-muted-foreground",
+                      )}>
+                        {eatCountsTowardTarget
+                          ? `+${eatKcal} kcal quemadas · objetivo ampliado`
+                          : `${eatKcal} kcal quemadas · no modifica el objetivo`}
+                      </p>
+                    )}
+                    {balanceInfo && (
+                      <div className={cn("mt-1.5 flex items-center gap-1.5 text-xs font-semibold", balanceInfo.color)}>
+                        <span>{balanceInfo.label}</span>
+                        <span className="font-normal opacity-80">{balanceInfo.detail}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Separador */}
+                  <div className="border-t border-border/40" />
+
+                  {/* Macros */}
                   <div className="flex items-start justify-around">
                     <MacroRing label="Proteína" value={Math.round(consumed.proteinG)} target={target.proteinMinG} color="#60a5fa" />
                     <MacroRing label="Carbos" value={Math.round(consumed.carbsG)} target={target.carbsG} color="#a78bfa" />
@@ -1421,27 +1611,42 @@ export function DashboardPage() {
 
             {/* Entrenamientos */}
             <div className="space-y-2">
-              {(data?.workouts ?? []).map((w) => (
-                <Card key={w.id} className="border-green-500/20 bg-green-500/5">
-                  <CardContent className="py-3 px-4 flex items-center justify-between">
-                    <div className="flex items-center gap-2.5">
-                      <Dumbbell className="h-4 w-4 text-green-400 shrink-0" />
-                      <div>
-                        <p className="text-sm font-medium text-green-400">
-                          {eatCountsTowardTarget ? `+${w.kcalBurned} kcal` : `${w.kcalBurned} kcal quemadas`}
-                        </p>
-                        {w.notes && <p className="text-xs text-muted-foreground">{w.notes}</p>}
-                        {!eatCountsTowardTarget && (
-                          <p className="text-[10px] text-muted-foreground/70">No amplía el objetivo en volumen</p>
-                        )}
+              {(data?.workouts ?? []).map((w) => {
+                const isPlanned = w.status === "planned";
+                return (
+                  <Card key={w.id} className={isPlanned ? "border-violet-500/25 bg-violet-500/5" : "border-green-500/20 bg-green-500/5"}>
+                    <CardContent className="py-3 px-4 flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <Dumbbell className={cn("h-4 w-4 shrink-0", isPlanned ? "text-violet-400" : "text-green-400")} />
+                        <div>
+                          {isPlanned ? (
+                            <>
+                              <p className="text-sm font-medium text-violet-400">
+                                Entreno planificado{w.plannedAt ? ` · ${w.plannedAt}` : ""}
+                              </p>
+                              {w.notes && <p className="text-xs text-muted-foreground">{w.notes}</p>}
+                              <p className="text-[10px] text-muted-foreground/70">El asesor lo tiene en cuenta</p>
+                            </>
+                          ) : (
+                            <>
+                              <p className="text-sm font-medium text-green-400">
+                                {eatCountsTowardTarget ? `+${w.kcalBurned} kcal` : `${w.kcalBurned} kcal quemadas`}
+                              </p>
+                              {w.notes && <p className="text-xs text-muted-foreground">{w.notes}</p>}
+                              {!eatCountsTowardTarget && (
+                                <p className="text-[10px] text-muted-foreground/70">No amplía el objetivo en volumen</p>
+                              )}
+                            </>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                    <button onClick={() => handleDeleteWorkout(w.id)} className="text-muted-foreground hover:text-destructive transition-colors p-1">
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </CardContent>
-                </Card>
-              ))}
+                      <button onClick={() => handleDeleteWorkout(w.id)} className="text-muted-foreground hover:text-destructive transition-colors p-1">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </CardContent>
+                  </Card>
+                );
+              })}
               <WorkoutForm date={date} onSave={handleAddWorkout} />
             </div>
           </section>
