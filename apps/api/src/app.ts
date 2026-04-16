@@ -10,6 +10,11 @@ import { mealsRoutes } from "./routes/meals.js";
 import { onboardingRoutes } from "./routes/onboarding.js";
 import { advisorRoutes } from "./routes/advisor.js";
 import { workoutsRoutes } from "./routes/workouts.js";
+import { weightRoutes } from "./routes/weight.js";
+import { h2MealsRoutes } from "./routes/h2-meals.js";
+import { coachingRoutes } from "./routes/coaching.js";
+import { createNutritionWorker } from "./workers/nutrition.js";
+import { createPurgeWorker } from "./workers/purge.js";
 
 export async function buildApp() {
   const app = Fastify({ logger: true });
@@ -31,7 +36,16 @@ export async function buildApp() {
   await app.register(foodsRoutes);
   await app.register(mealsRoutes);
   await app.register(workoutsRoutes);
+  await app.register(weightRoutes);
   await app.register(advisorRoutes);
+  await app.register(h2MealsRoutes);
+  await app.register(coachingRoutes);
+
+  // ── Workers (solo si no estamos en modo test) ──────────────────────────────
+  if (process.env.NODE_ENV !== "test") {
+    createNutritionWorker();
+    createPurgeWorker();
+  }
 
   return app;
 }

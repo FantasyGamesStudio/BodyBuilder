@@ -3,6 +3,7 @@ import {
   boolean,
   date,
   integer,
+  jsonb,
   numeric,
   pgTable,
   text,
@@ -153,6 +154,8 @@ export const foods = pgTable("foods", {
  * Los valores calóricos y de macros se desnormalizan en el momento
  * del INSERT para que los totales del día sean rápidos de calcular.
  * food_id es nullable: las entradas del asesor IA usan food_name en su lugar.
+ *
+ * Estados (H2): draft → awaiting_media → ai_processing → pending_user_review → confirmed → corrected
  */
 export const mealLogEntries = pgTable("meal_log_entries", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -174,6 +177,10 @@ export const mealLogEntries = pgTable("meal_log_entries", {
   proteinG: numeric("protein_g", { precision: 6, scale: 1 }).notNull(),
   fatG: numeric("fat_g", { precision: 6, scale: 1 }).notNull(),
   carbsG: numeric("carbs_g", { precision: 6, scale: 1 }).notNull(),
+  /** draft | awaiting_media | ai_processing | pending_user_review | confirmed | corrected */
+  status: text("status").notNull().default("confirmed"),
+  /** Nota opcional del usuario sobre la comida */
+  userNote: text("user_note"),
   /** Timestamp real del registro (para ordenar dentro del slot) */
   loggedAt: timestamp("logged_at", { withTimezone: true }).defaultNow().notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -221,6 +228,23 @@ export const recurringFoods = pgTable("recurring_foods", {
 });
 
 /**
+ * Registro de peso corporal del usuario (un registro por día).
+ * Se usa para seguimiento de evolución y comparación con el objetivo.
+ */
+export const weightLogs = pgTable("weight_logs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  /** Fecha del pesaje en zona horaria del usuario (YYYY-MM-DD) */
+  logDate: date("log_date").notNull(),
+  /** Peso en kg con dos decimales */
+  weightKg: numeric("weight_kg", { precision: 5, scale: 2 }).notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+/**
  * Registro de actividad física por día.
  * Cada entrada añade kcal quemadas al target efectivo del día (EAT).
  */
@@ -238,6 +262,122 @@ export const workoutLogs = pgTable("workout_logs", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+/**
+ * Archivos multimedia asociados a una comida (fotos, audio).
+ */
+export const mealMedia = pgTable("meal_media", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  mealEntryId: uuid("meal_entry_id")
+    .notNull()
+    .references(() => mealLogEntries.id, { onDelete: "cascade" }),
+  /** image | audio */
+  type: text("type").notNull(),
+  /** Clave en object storage (MinIO/S3) */
+  objectKey: text("object_key").notNull(),
+  /** MIME type (image/jpeg, audio/webm, etc.) */
+  mime: text("mime").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  /** Duración en segundos (solo audio) */
+  durationSec: numeric("duration_sec", { precision: 8, scale: 2 }),
+  uploadedAt: timestamp("uploaded_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+/**
+ * Historial de correcciones aplicadas a una comida tras la estimación IA.
+ */
+export const mealCorrections = pgTable("meal_corrections", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  mealEntryId: uuid("meal_entry_id")
+    .notNull()
+    .references(() => mealLogEntries.id, { onDelete: "cascade" }),
+  /** Snapshot de los valores previos a la corrección */
+  previousSnapshot: jsonb("previous_snapshot").notNull(),
+  /** Explicación del usuario (texto) */
+  userExplanationText: text("user_explanation_text"),
+  /** Clave de audio con la corrección del usuario */
+  audioObjectKey: text("audio_object_key"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+/**
+ * Interacciones con IA (trazabilidad de cada request/response).
+ */
+export const aiInteractions = pgTable("ai_interactions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  mealEntryId: uuid("meal_entry_id")
+    .references(() => mealLogEntries.id, { onDelete: "set null" }),
+  coachingMessageId: uuid("coaching_message_id"),
+  /** request | response */
+  direction: text("direction").notNull(),
+  /** Modelo usado (gpt-4o, whisper-1, etc.) */
+  modelId: text("model_id").notNull(),
+  /** Request ID devuelto por OpenAI/OpenRouter */
+  openrouterRequestId: text("openrouter_request_id"),
+  /** Resumen de entrada: hashes/referencias a medios, transcript */
+  inputSummary: jsonb("input_summary"),
+  /** Texto crudo de salida */
+  outputRaw: text("output_raw"),
+  /** JSON validado de la salida nutricional */
+  outputParsed: jsonb("output_parsed"),
+  /** Latencia en ms */
+  latencyMs: integer("latency_ms"),
+  /** Uso de tokens (input, output, total) */
+  tokenUsage: jsonb("token_usage"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+/**
+ * Hilo de coaching conversacional con ventana deslizante de 7 días.
+ */
+export const coachingThreads = pgTable("coaching_threads", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  openedAt: timestamp("opened_at", { withTimezone: true }).defaultNow().notNull(),
+  lastMessageAt: timestamp("last_message_at", { withTimezone: true }).defaultNow().notNull(),
+  /** Resumen compacto para contexto en prompts LLM */
+  summaryCompact: text("summary_compact"),
+  /** Última actividad + 7 días → el job purga tras esta fecha */
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  /** active | purged */
+  status: text("status").notNull().default("active"),
+});
+
+/**
+ * Mensajes dentro de un hilo de coaching.
+ */
+export const coachingMessages = pgTable("coaching_messages", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  threadId: uuid("thread_id")
+    .notNull()
+    .references(() => coachingThreads.id, { onDelete: "cascade" }),
+  /** user | assistant | system */
+  role: text("role").notNull(),
+  bodyText: text("body_text").notNull(),
+  linkedMealEntryId: uuid("linked_meal_entry_id")
+    .references(() => mealLogEntries.id, { onDelete: "set null" }),
+  attachmentObjectKey: text("attachment_object_key"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+/**
+ * Catálogo interno incremental de alimentos observados.
+ * Se actualiza tras cada comida confirmada (upsert estadístico).
+ */
+export const foodItemObservations = pgTable("food_item_observations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  /** Nombre normalizado del alimento */
+  normalizedName: text("normalized_name").notNull().unique(),
+  /** Macros por 100g o por porción */
+  per100gOrServing: jsonb("per_100g_or_serving"),
+  /** Cuántas veces se ha visto este alimento */
+  seenCount: integer("seen_count").notNull().default(1),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow().notNull(),
+  sourceUserId: uuid("source_user_id")
+    .references(() => users.id, { onDelete: "set null" }),
+});
+
 // ─── relations (needed for Drizzle query API `with:`) ────────────────────────
 
 export const usersRelations = relations(users, ({ one, many }) => ({
@@ -251,8 +391,13 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   mealLogEntries: many(mealLogEntries),
   foods: many(foods),
   workoutLogs: many(workoutLogs),
+  weightLogs: many(weightLogs),
   advisorMessages: many(advisorMessages),
   recurringFoods: many(recurringFoods),
+}));
+
+export const weightLogsRelations = relations(weightLogs, ({ one }) => ({
+  user: one(users, { fields: [weightLogs.userId], references: [users.id] }),
 }));
 
 export const workoutLogsRelations = relations(workoutLogs, ({ one }) => ({
@@ -272,9 +417,37 @@ export const foodsRelations = relations(foods, ({ one, many }) => ({
   mealLogEntries: many(mealLogEntries),
 }));
 
-export const mealLogEntriesRelations = relations(mealLogEntries, ({ one }) => ({
+export const mealLogEntriesRelations = relations(mealLogEntries, ({ one, many }) => ({
   user: one(users, { fields: [mealLogEntries.userId], references: [users.id] }),
   food: one(foods, { fields: [mealLogEntries.foodId], references: [foods.id] }),
+  media: many(mealMedia),
+  corrections: many(mealCorrections),
+}));
+
+export const mealMediaRelations = relations(mealMedia, ({ one }) => ({
+  mealEntry: one(mealLogEntries, { fields: [mealMedia.mealEntryId], references: [mealLogEntries.id] }),
+}));
+
+export const mealCorrectionsRelations = relations(mealCorrections, ({ one }) => ({
+  mealEntry: one(mealLogEntries, { fields: [mealCorrections.mealEntryId], references: [mealLogEntries.id] }),
+}));
+
+export const aiInteractionsRelations = relations(aiInteractions, ({ one }) => ({
+  mealEntry: one(mealLogEntries, { fields: [aiInteractions.mealEntryId], references: [mealLogEntries.id] }),
+}));
+
+export const coachingThreadsRelations = relations(coachingThreads, ({ one, many }) => ({
+  user: one(users, { fields: [coachingThreads.userId], references: [users.id] }),
+  messages: many(coachingMessages),
+}));
+
+export const coachingMessagesRelations = relations(coachingMessages, ({ one }) => ({
+  thread: one(coachingThreads, { fields: [coachingMessages.threadId], references: [coachingThreads.id] }),
+  mealEntry: one(mealLogEntries, { fields: [coachingMessages.linkedMealEntryId], references: [mealLogEntries.id] }),
+}));
+
+export const foodItemObservationsRelations = relations(foodItemObservations, ({ one }) => ({
+  sourceUser: one(users, { fields: [foodItemObservations.sourceUserId], references: [users.id] }),
 }));
 
 export const userOnboardingsRelations = relations(userOnboardings, ({ one }) => ({

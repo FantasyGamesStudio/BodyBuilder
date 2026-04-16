@@ -43,6 +43,13 @@
       "when": 1776271824497,
       "tag": "0005_majestic_santa_claus",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1776336998241,
+      "tag": "0006_pale_sharon_carter",
+      "breakpoints": true
     }
   ]
 }

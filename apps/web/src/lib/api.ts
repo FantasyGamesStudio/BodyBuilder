@@ -191,7 +191,8 @@ export interface Food {
 
 export interface MealEntry {
   id: string;
-  foodId: string;
+  foodId: string | null;
+  foodName: string | null;
   food: { id: string; name: string; brand: string | null } | null;
   nutritionDate: string;
   mealSlot: string;
@@ -200,7 +201,45 @@ export interface MealEntry {
   proteinG: number;
   fatG: number;
   carbsG: number;
+  status: "draft" | "awaiting_media" | "ai_processing" | "pending_user_review" | "confirmed" | "corrected";
+  userNote: string | null;
   loggedAt: string;
+}
+
+export interface MealMedia {
+  id: string;
+  type: "image" | "audio";
+  objectKey: string;
+  mime: string;
+}
+
+export interface MealCorrection {
+  id: string;
+  userExplanationText: string | null;
+  createdAt: string;
+}
+
+export interface MealDetail extends MealEntry {
+  media: MealMedia[];
+  corrections: MealCorrection[];
+}
+
+export interface MealMedia {
+  id: string;
+  type: "image" | "audio";
+  objectKey: string;
+  mime: string;
+}
+
+export interface MealCorrection {
+  id: string;
+  userExplanationText: string | null;
+  createdAt: string;
+}
+
+export interface MealDetail extends MealEntry {
+  media: MealMedia[];
+  corrections: MealCorrection[];
 }
 
 export interface DayProgress {
@@ -374,4 +413,86 @@ export const advisorApi = {
     }
     return res.json() as Promise<{ text: string }>;
   },
+};
+
+// ─── H2: Meals con IA (draft → media → submit → confirm) ─────────────────────
+
+export interface DraftMealResponse {
+  id: string;
+  status: string;
+  nutritionDate: string;
+  mealSlot: string;
+}
+
+export interface UploadUrlResponse {
+  url: string;
+  objectKey: string;
+  headers: Record<string, string>;
+  mediaId: string;
+}
+
+export interface SubmitForAiResponse {
+  status: string;
+  jobId: string;
+}
+
+export const h2MealsApi = {
+  createDraft: (data: { nutritionDate: string; mealSlot: string; userNote?: string }) =>
+    api.post<DraftMealResponse>("/meals/draft", data),
+  getUploadUrl: (mealId: string, mime: string, sizeBytes: number) =>
+    api.post<UploadUrlResponse>(`/meals/${mealId}/media/upload-url`, { mime, sizeBytes }),
+  submitForAi: (mealId: string, data?: { hasAudio?: boolean; hasImages?: boolean }) =>
+    api.post<SubmitForAiResponse>(`/meals/${mealId}/submit-for-ai`, data),
+  getDetail: (mealId: string) => api.get<MealDetail>(`/meals/${mealId}`),
+  confirm: (mealId: string, data: {
+    acceptAiEstimate?: boolean;
+    quantityG?: number;
+    kcal?: number;
+    proteinG?: number;
+    fatG?: number;
+    carbsG?: number;
+  }) => api.patch<MealDetail>(`/meals/${mealId}/confirm`, data),
+  correction: (mealId: string, data: {
+    userExplanationText?: string;
+    quantityG?: number;
+    kcal?: number;
+    proteinG?: number;
+    fatG?: number;
+    carbsG?: number;
+  }) => api.post<MealDetail>(`/meals/${mealId}/correction`, data),
+  reprocess: (mealId: string, data?: { userExplanationText?: string }) =>
+    api.post<SubmitForAiResponse>(`/meals/${mealId}/reprocess`, data),
+  delete: (mealId: string) => api.delete<{ ok: boolean }>(`/meals/${mealId}`),
+};
+
+// ─── H2: Coaching threads ────────────────────────────────────────────────────
+
+export interface CoachingThread {
+  id: string;
+  status: string;
+  openedAt: string;
+  lastMessageAt: string;
+  expiresAt: string;
+}
+
+export interface CoachingMessage {
+  id: string;
+  role: "user" | "assistant" | "system";
+  bodyText: string;
+  linkedMealEntryId: string | null;
+  createdAt: string;
+}
+
+export const coachingApi = {
+  getThread: () => api.get<CoachingThread>("/coaching/thread"),
+  getMessages: (threadId: string) =>
+    api.get<{ messages: CoachingMessage[] }>(`/coaching/thread/${threadId}/messages`),
+  sendMessage: (threadId: string, data: {
+    text?: string;
+    audioBase64?: string;
+    imageBase64?: string;
+    imageMimeType?: string;
+    linkedMealEntryId?: string;
+  }) => api.post<{ reply: string; transcription?: string }>(`/coaching/thread/${threadId}/messages`, data),
+  deleteThread: (threadId: string) => api.delete<{ ok: boolean }>(`/coaching/thread/${threadId}`),
 };

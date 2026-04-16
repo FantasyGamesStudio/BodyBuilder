@@ -19,4 +19,11 @@ export const env = {
   MOCK_SUBSCRIPTION: process.env.MOCK_SUBSCRIPTION === "true",
   OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? "",
   OPENAI_MODEL: process.env.OPENAI_MODEL ?? "gpt-4o",
+  REDIS_URL: process.env.REDIS_URL ?? "redis://localhost:6379",
+  S3_ENDPOINT: process.env.S3_ENDPOINT ?? "http://localhost:9000",
+  S3_ACCESS_KEY: process.env.S3_ACCESS_KEY ?? "minio",
+  S3_SECRET_KEY: process.env.S3_SECRET_KEY ?? "minio12345",
+  S3_BUCKET: process.env.S3_BUCKET ?? "bodybuilder",
+  S3_REGION: process.env.S3_REGION ?? "us-east-1",
+  S3_FORCE_PATH_STYLE: process.env.S3_FORCE_PATH_STYLE === "true" || true,
 } as const;
