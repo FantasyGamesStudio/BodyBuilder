@@ -174,117 +174,91 @@ const SLOT_LABELS: Record<string, string> = {
   other: "Otro",
 };
 
-function MealSlotCard({
-  slot,
-  entries,
+// Distribución calórica estimada por slot (% del total diario)
+const SLOT_KCAL_PCT: Record<string, number> = {
+  breakfast: 0.25,
+  lunch: 0.35,
+  dinner: 0.30,
+  snack: 0.10,
+  other: 0.10,
+};
+
+// Icono SVG por slot como arco de progreso circular
+function SlotArc({ consumed, target, color }: { consumed: number; target: number; color: string }) {
+  const r = 18;
+  const circ = 2 * Math.PI * r;
+  const pct = target > 0 ? Math.min(consumed / target, 1) : 0;
+  return (
+    <div className="relative flex h-11 w-11 shrink-0 items-center justify-center">
+      <svg width="44" height="44" viewBox="0 0 44 44" className="-rotate-90">
+        <circle cx="22" cy="22" r={r} fill="none" stroke="currentColor" strokeWidth="3.5" className="text-muted/25" />
+        {consumed > 0 && (
+          <circle
+            cx="22" cy="22" r={r} fill="none"
+            stroke={color} strokeWidth="3.5"
+            strokeDasharray={circ}
+            strokeDashoffset={circ - circ * pct}
+            strokeLinecap="round"
+            style={{ transition: "stroke-dashoffset 0.6s cubic-bezier(0.4,0,0.2,1)" }}
+          />
+        )}
+      </svg>
+    </div>
+  );
+}
+
+// Bloque único de slots estilo Yazio
+function MealSlotsBlock({
+  slots,
+  bySlot,
   date,
-  recurringItems,
-  onAddRecurring,
-  onMarkRecurring,
-  onDeleteRecurring,
-  onDelete,
+  kcalTarget,
 }: {
-  slot: string;
-  entries: MealEntry[];
+  slots: string[];
+  bySlot: Record<string, MealEntry[]>;
   date: string;
-  recurringItems: RecurringFood[];
-  onAddRecurring: (food: RecurringFood) => void;
-  onMarkRecurring: (entryId: string) => void;
-  onDeleteRecurring: (recurringId: string) => void;
-  onDelete: (id: string) => void;
+  kcalTarget: number;
 }) {
-  // Entradas marcadas/desmarcadas manualmente en esta sesión
-  const [manuallyMarked, setManuallyMarked] = useState<Set<string>>(new Set());
-  const [manuallyUnmarked, setManuallyUnmarked] = useState<Set<string>>(new Set());
-  const total = entries.reduce((s, e) => s + e.kcal, 0);
-
-  function isStarred(entry: MealEntry): boolean {
-    if (manuallyUnmarked.has(entry.id)) return false;
-    if (manuallyMarked.has(entry.id)) return true;
-    const name = (entry.food?.name ?? "").toLowerCase();
-    return recurringItems.some((r) => r.name.toLowerCase() === name);
-  }
-
-  function handleToggleStar(entry: MealEntry) {
-    if (isStarred(entry)) {
-      setManuallyUnmarked((p) => new Set([...p, entry.id]));
-      setManuallyMarked((p) => { const n = new Set(p); n.delete(entry.id); return n; });
-      const rec = recurringItems.find((r) => r.name.toLowerCase() === (entry.food?.name ?? "").toLowerCase());
-      if (rec) onDeleteRecurring(rec.id);
-    } else {
-      setManuallyMarked((p) => new Set([...p, entry.id]));
-      setManuallyUnmarked((p) => { const n = new Set(p); n.delete(entry.id); return n; });
-      onMarkRecurring(entry.id);
-    }
-  }
+  const SLOT_COLORS: Record<string, string> = {
+    breakfast: "#f59e0b",
+    lunch:     "#3b82f6",
+    dinner:    "#8b5cf6",
+    snack:     "#10b981",
+    other:     "#6b7280",
+  };
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-sm">{SLOT_LABELS[slot] ?? slot}</CardTitle>
-          <div className="flex items-center gap-2">
-            {total > 0 && (
-              <span className="text-xs text-muted-foreground tabular-nums">{total} kcal</span>
-            )}
-            <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
-              <Link to={`/log?date=${date}&slot=${slot}`}>
-                <Plus className="h-4 w-4" />
-              </Link>
-            </Button>
-          </div>
-        </div>
-      </CardHeader>
+    <Card className="overflow-hidden divide-y divide-border/50">
+      {slots.map((slot) => {
+        const entries = bySlot[slot] ?? [];
+        const consumed = entries.reduce((s, e) => s + e.kcal, 0);
+        const slotTarget = kcalTarget > 0 ? Math.round(kcalTarget * (SLOT_KCAL_PCT[slot] ?? 0.1)) : 0;
+        const color = SLOT_COLORS[slot] ?? "#6b7280";
+        const label = SLOT_LABELS[slot] ?? slot;
 
-      {/* Chips de acceso rápido (recurrentes de este slot) */}
-      {recurringItems.length > 0 && (
-        <CardContent className="pt-0 pb-2">
-          <div className="flex flex-col gap-1.5">
-            {recurringItems.slice(0, 3).map((r) => (
-              <button
-                key={r.id}
-                onClick={() => onAddRecurring(r)}
-                className="flex items-center gap-1 rounded-full border border-border/50 bg-muted/30 px-2.5 py-1 text-[11px] hover:border-primary/50 hover:bg-primary/5 transition-all w-fit"
-              >
-                <Star className="h-2.5 w-2.5 text-yellow-400 fill-yellow-400" />
-                <span>{r.name}</span>
-                <span className="text-muted-foreground">{r.kcalPerServing} kcal</span>
-              </button>
-            ))}
-          </div>
-        </CardContent>
-      )}
-
-      {entries.length > 0 && (
-        <CardContent className={cn("pt-0 space-y-2", recurringItems.length > 0 && "border-t border-border/30")}>
-          {entries.map((entry) => (
-            <div key={entry.id} className="flex items-center justify-between text-sm py-1.5 border-t border-border/50 first:border-t-0">
-              <div className="flex-1 min-w-0">
-                <p className="font-medium truncate">{entry.food?.name ?? "Alimento"}</p>
-                <p className="text-xs text-muted-foreground">
-                  {entry.quantityG}g · P: {entry.proteinG}g · C: {entry.carbsG}g · G: {entry.fatG}g
-                </p>
-              </div>
-              <div className="flex items-center gap-1 ml-3 shrink-0">
-                <span className="text-xs font-medium tabular-nums mr-1">{entry.kcal} kcal</span>
-                <button
-                  onClick={() => handleToggleStar(entry)}
-                  title={isStarred(entry) ? "Quitar de favoritos" : "Guardar como favorito"}
-                  className={cn("p-1 transition-colors", isStarred(entry) ? "text-yellow-400" : "text-muted-foreground hover:text-yellow-400")}
-                >
-                  <Star className={cn("h-3.5 w-3.5", isStarred(entry) && "fill-yellow-400")} />
-                </button>
-                <button
-                  onClick={() => onDelete(entry.id)}
-                  className="text-muted-foreground hover:text-destructive transition-colors p-1"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
+        return (
+          <Link
+            key={slot}
+            to={`/log?date=${date}&slot=${slot}`}
+            className="flex items-center gap-3 px-4 py-3 hover:bg-white/3 transition-colors"
+          >
+            <SlotArc consumed={consumed} target={slotTarget} color={color} />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold leading-none">{label}</p>
+              <p className="mt-1 text-xs text-muted-foreground tabular-nums">
+                {consumed > 0 ? (
+                  <><span style={{ color }}>{consumed}</span>{slotTarget > 0 ? ` / ${slotTarget}` : ""} kcal</>
+                ) : (
+                  <span>{slotTarget > 0 ? `0 / ${slotTarget} kcal` : "Sin registros"}</span>
+                )}
+              </p>
             </div>
-          ))}
-        </CardContent>
-      )}
+            <div className="shrink-0 flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm shadow-primary/30 hover:bg-primary/90 transition-colors">
+              <Plus className="h-4 w-4" />
+            </div>
+          </Link>
+        );
+      })}
     </Card>
   );
 }
@@ -1296,19 +1270,12 @@ export function DashboardPage() {
           {/* ── SECCIÓN 3: Registros de comida ───────────────────────────── */}
           <section className="space-y-3">
             <h2 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">Registros del día</h2>
-            {slots.map((slot) => (
-              <MealSlotCard
-                key={slot}
-                slot={slot}
-                entries={data?.bySlot[slot] ?? []}
-                date={date}
-                recurringItems={recurring.filter((r) => r.mealSlot === slot)}
-                onAddRecurring={handleAddRecurring}
-                onMarkRecurring={handleMarkRecurring}
-                onDeleteRecurring={handleDeleteRecurring}
-                onDelete={handleDeleteMeal}
-              />
-            ))}
+            <MealSlotsBlock
+              slots={slots}
+              bySlot={data?.bySlot ?? {}}
+              date={date}
+              kcalTarget={effectiveKcalTarget}
+            />
           </section>
 
         </div>
