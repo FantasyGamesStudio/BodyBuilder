@@ -3,7 +3,7 @@ import { compressImage } from "@/lib/image";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { MarkdownText } from "@/components/ui/markdown-text";
 import { advisorApi, mealsApi, onboardingApi, workoutsApi, type ActiveTarget, type AdvisorAddedEntry, type AdvisorMessage, type DayResponse, type MealEntry, type MonthDaySummary, type MonthResponse, type RecurringFood, type WeekDaySummary, type WeekResponse, type WorkoutLog } from "@/lib/api";
@@ -1207,7 +1207,6 @@ export function DashboardPage() {
   const [advisorOpen, setAdvisorOpen] = useState(false);
   const [data, setData] = useState<DayResponse | null>(null);
   const [target, setTarget] = useState<ActiveTarget | null>(null);
-  const [recurring, setRecurring] = useState<RecurringFood[]>([]);
   const [loading, setLoading] = useState(true);
   const today = todayISO();
   const isToday = date === today;
@@ -1220,10 +1219,6 @@ export function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    advisorApi.recurring().then((r) => setRecurring(r.items)).catch(() => {});
-  }, []);
-
-  useEffect(() => {
     setLoading(true);
     mealsApi.day(date)
       .then(setData)
@@ -1232,45 +1227,6 @@ export function DashboardPage() {
 
   function refreshDay() {
     mealsApi.day(date).then(setData).catch(() => {});
-  }
-
-  function refreshRecurring() {
-    advisorApi.recurring().then((r) => setRecurring(r.items)).catch(() => {});
-  }
-
-  async function handleAddRecurring(food: RecurringFood) {
-    await advisorApi.logRecurring(food.id, date).catch(() => {});
-    refreshDay();
-  }
-
-  async function handleMarkRecurring(entryId: string) {
-    await advisorApi.markRecurring(entryId).catch(() => {});
-    refreshRecurring();
-  }
-
-  async function handleDeleteRecurring(id: string) {
-    setRecurring((prev) => prev.filter((r) => r.id !== id));
-    await advisorApi.deleteRecurring(id).catch(() => refreshRecurring());
-  }
-
-  async function handleDeleteMeal(id: string) {
-    // Optimistic: quitar de UI inmediatamente
-    setData((prev) => {
-      if (!prev) return prev;
-      const entries = prev.entries.filter((e) => e.id !== id);
-      const bySlot = Object.fromEntries(
-        Object.entries(prev.bySlot).map(([k, v]) => [k, v.filter((e) => e.id !== id)]),
-      );
-      return { ...prev, entries, bySlot };
-    });
-    try {
-      await mealsApi.delete(id);
-      // Refresco para que los totales del servidor estén en sincronía
-      refreshDay();
-    } catch {
-      // Si falla, revertimos refrescando desde servidor
-      refreshDay();
-    }
   }
 
   async function handleDeleteWorkout(id: string) {
@@ -1563,7 +1519,7 @@ export function DashboardPage() {
             {/* Panel colapsable */}
             {advisorOpen && (
               <div className="rounded-2xl border border-violet-500/20 bg-violet-500/5 p-4 space-y-3">
-                <AdvisorInline date={date} onEntriesAdded={refreshDay} onRecurringChange={refreshRecurring} />
+                <AdvisorInline date={date} onEntriesAdded={refreshDay} onRecurringChange={() => {}} />
                 {/* Botón de cierre inferior */}
                 <button
                   onClick={() => setAdvisorOpen(false)}
