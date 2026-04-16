@@ -48,6 +48,11 @@
 
 - Toggle **eat-back** solo donde producto lo permita (**volumen / mantenimiento**); **no** en déficit — ver `functional_decisions_v1.md` §13.1.
 
+## IA — Coaching (H2)
+
+- **Summarización de hilos de coaching** (`coaching_threads.summaryCompact`): el campo existe en el schema pero no se rellena. El hilo usa hasta 20 mensajes en crudo como contexto. Cuando los hilos sean largos, implementar un job de resumen periódico (LLM → `summaryCompact`) para reducir coste de tokens.
+- **Imágenes de coaching en object storage**: actualmente las imágenes enviadas al coach se transmiten inline como base64 al LLM pero **no se almacenan en S3/R2**. El campo `attachmentObjectKey` se guarda a `null`. Si en el futuro se quiere persistir las imágenes (para auditoría, re-análisis, etc.), añadir el upload presignado antes de la llamada al LLM.
+
 ---
 
-*Última actualización: suscripción + pase de batalla en backlog; política medios y NEAT baseline cerradas en funcional §13.*
+*Última actualización: suscripción + pase de batalla en backlog; política medios y NEAT baseline cerradas en funcional §13; H2 coaching gaps añadidos 2026-04-16.*

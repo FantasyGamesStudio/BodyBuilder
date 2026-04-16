@@ -66,6 +66,7 @@ export function H2LogMealPage() {
 
   const date = searchParams.get("date") ?? new Date().toLocaleDateString("sv-SE");
   const slot = searchParams.get("slot") ?? "other";
+  const reviewId = searchParams.get("reviewId");
 
   const [pageState, setPageState] = useState<PageState>("idle");
   const [note, setNote] = useState("");
@@ -89,13 +90,38 @@ export function H2LogMealPage() {
   const imageInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
-  // ── Cuando llega el detalle de la IA, pre-rellena el formulario de revisión
+  // ── F2: Si hay reviewId en la URL, cargar la comida y saltar a revisión
   useEffect(() => {
-    if (mealDetail?.status === "pending_user_review" && mealDetail.aiEstimate) {
-      setReviewKcal(String(mealDetail.aiEstimate.kcal ?? ""));
-      setReviewProtein(String(mealDetail.aiEstimate.proteinG ?? ""));
-      setReviewCarbs(String(mealDetail.aiEstimate.carbsG ?? ""));
-      setReviewFat(String(mealDetail.aiEstimate.fatG ?? ""));
+    if (!reviewId) return;
+    h2MealsApi.getDetail(reviewId)
+      .then((detail) => {
+        setMealDetail(detail);
+        if (detail.status === "ai_processing") {
+          setPageState("processing");
+          pollUntilReady(reviewId).then((d) => {
+            setMealDetail(d);
+            setPageState(d.status === "pending_user_review" ? "review" : "error");
+          }).catch(() => setPageState("error"));
+        } else if (detail.status === "pending_user_review") {
+          setPageState("review");
+        } else if (detail.status === "confirmed" || detail.status === "corrected") {
+          setPageState("confirmed");
+        }
+      })
+      .catch(() => {
+        setErrorMsg("No se pudo cargar la comida. Inténtalo de nuevo.");
+        setPageState("error");
+      });
+  }, [reviewId]);
+
+  // ── F3: pre-rellena el formulario desde aiEstimate si existe, o desde top-level fields
+  useEffect(() => {
+    if (mealDetail?.status === "pending_user_review") {
+      const est = mealDetail.aiEstimate;
+      setReviewKcal(String(est?.kcal ?? mealDetail.kcal ?? ""));
+      setReviewProtein(String(est?.proteinG ?? mealDetail.proteinG ?? ""));
+      setReviewCarbs(String(est?.carbsG ?? mealDetail.carbsG ?? ""));
+      setReviewFat(String(est?.fatG ?? mealDetail.fatG ?? ""));
     }
   }, [mealDetail]);
 
@@ -198,10 +224,11 @@ export function H2LogMealPage() {
     if (!mealDetail) return;
     setSaving(true);
     try {
+      let confirmed: MealDetail;
       if (accept) {
-        await h2MealsApi.confirm(mealDetail.id, { acceptAiEstimate: true });
+        confirmed = await h2MealsApi.confirm(mealDetail.id, { acceptAiEstimate: true });
       } else {
-        await h2MealsApi.confirm(mealDetail.id, {
+        confirmed = await h2MealsApi.confirm(mealDetail.id, {
           acceptAiEstimate: false,
           kcal: Number(reviewKcal) || undefined,
           proteinG: Number(reviewProtein) || undefined,
@@ -209,6 +236,7 @@ export function H2LogMealPage() {
           fatG: Number(reviewFat) || undefined,
         });
       }
+      setMealDetail(confirmed); // F4: actualizar con datos confirmados
       setPageState("confirmed");
     } catch {
       setErrorMsg("Error al confirmar. Inténtalo de nuevo.");

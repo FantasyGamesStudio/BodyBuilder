@@ -71,5 +71,36 @@ implementación. Marca explícitamente dependencias y riesgos.
 
 - **`technical_design_v0.md`** — v0.3+; §14 enlaza **ADR 0001**.
 - **`docs/adr/0001-stack-and-architecture.md`** — stack congelado; monorepo `pnpm` iniciado en raíz.
+- **`docs/adr/0002-h2-ai-estimate-storage.md`** — decisión de almacenamiento de estimación IA en columnas top-level.
 
-*Actualizar este archivo cuando cambie la versión del diseño técnico.*
+---
+
+## Estado de implementación por hito
+
+| Hito | Estado | Rama | Notas |
+|------|--------|------|-------|
+| **H1** — Auth, perfil, onboarding, objetivos, comidas manuales, peso, entrenamientos, web app | ✅ Completo | `main` | |
+| **H2** — IA comida (foto/audio), flujo draft→confirm, coach conversacional, purga de hilos | ✅ Completo | `dev` | Pendiente merge a main |
+| **H3+** — Social, gamificación, notificaciones, evaluaciones | ⏳ Pendiente | — | Ver `deferred_backlog.md` |
+
+### H2 — detalle de lo implementado
+
+**Backend (`apps/api`):**
+- Rutas `h2-meals.ts`: draft → upload-url → submit-for-ai → confirm → correction → reprocess → GET detail
+- Worker `nutrition.ts`: STT Whisper + visión GPT-4o + JSON schema nutricional, estado `error_ai` en fallo
+- Rutas `coaching.ts`: thread CRUD + mensajes con ventana deslizante de 20 mensajes
+- Worker `purge.ts`: purga de hilos expirados y medios huérfanos
+- Schema completo: `meal_media`, `meal_corrections`, `ai_interactions`, `coaching_threads`, `coaching_messages`, `food_item_observations`
+- Tests de integración: `h2-meals.test.ts`, `coaching.test.ts` (30 tests, todos pasan)
+
+**Frontend (`apps/web`):**
+- `H2LogMealPage` (`/log/h2`): flujo completo idle→uploading→processing→review→confirmed/error
+- `CoachingPage` (`/coaching`): chat con thread, markdown, audio, imágenes, error UI
+- Dashboard: badges de estado IA en slots de comida, deep-link a revisión
+- Nav: `/coaching` en bottom tab bar y sidebar
+
+**Gaps conocidos (ver `deferred_backlog.md`):**
+- `summaryCompact` de hilos de coaching no implementado
+- Imágenes de coaching no se persisten en S3 (solo inline al LLM)
+
+*Actualizar este archivo cuando cambie la versión del diseño técnico o se complete un hito.*

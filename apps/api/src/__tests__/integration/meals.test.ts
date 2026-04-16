@@ -442,13 +442,40 @@ describe("GET /v1/meals/week/:weekStart", () => {
   });
 
   it("acumula los totales semanales correctamente", async () => {
-    const { app, token } = await setupUser();
-    const food = await createFood(token);
+    const app = await getTestApp();
+    const unique = `week-totals-${Date.now()}@bodybuilder.dev`;
+    const regRes = await app.inject({
+      method: "POST",
+      url: "/v1/auth/register",
+      payload: { email: unique, password: "password123", nickname: "WeekTester" },
+    });
+    expect(regRes.statusCode).toBe(201);
+    const token = regRes.json().access_token as string;
+    expect(token).toBeTruthy();
+
+    const foodRes = await app.inject({
+      method: "POST",
+      url: "/v1/foods",
+      headers: { Authorization: `Bearer ${token}` },
+      payload: { name: "Pechuga test", kcalPer100g: 165, proteinPer100g: 31, fatPer100g: 3.6, carbsPer100g: 0 },
+    });
+    expect(foodRes.statusCode).toBe(201);
+    const foodId = foodRes.json().id as string;
 
     // 200 g × 165 kcal/100g = 330 kcal
-    await logMeal(token, food.id, { nutritionDate: "2026-04-14", quantityG: 200 });
+    await app.inject({
+      method: "POST",
+      url: "/v1/meals",
+      headers: { Authorization: `Bearer ${token}` },
+      payload: { foodId, nutritionDate: "2026-04-14", mealSlot: "lunch", quantityG: 200 },
+    });
     // 100 g × 165 kcal/100g = 165 kcal
-    await logMeal(token, food.id, { nutritionDate: "2026-04-15", quantityG: 100 });
+    await app.inject({
+      method: "POST",
+      url: "/v1/meals",
+      headers: { Authorization: `Bearer ${token}` },
+      payload: { foodId, nutritionDate: "2026-04-15", mealSlot: "lunch", quantityG: 100 },
+    });
 
     const res = await app.inject({
       method: "GET",

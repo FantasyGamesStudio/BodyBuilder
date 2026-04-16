@@ -1,9 +1,10 @@
-import { BarChart3, LayoutDashboard, User } from "lucide-react";
+import { BarChart3, Brain, LayoutDashboard, User } from "lucide-react";
 import { NavLink, Outlet } from "react-router";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
   { to: "/", icon: LayoutDashboard, label: "Inicio" },
+  { to: "/coaching", icon: Brain, label: "Coach" },
   { to: "/me", icon: User, label: "Perfil" },
 ];
 

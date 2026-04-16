@@ -14,7 +14,7 @@ import OpenAI, { toFile } from "openai";
 import { z } from "zod";
 import { db, schema } from "../db/index.js";
 import { env } from "../lib/env.js";
-import { getObjectBuffer, generateObjectKey, mimeToExt } from "../lib/storage.js";
+import { getObjectBuffer } from "../lib/storage.js";
 
 let _openai: OpenAI | null = null;
 function getOpenAI(): OpenAI {
@@ -152,6 +152,11 @@ export const coachingRoutes: FastifyPluginAsync = async (app) => {
     });
     if (!thread) return reply.status(404).send({ error: "thread_not_found" });
 
+    // Validar que hay algún contenido antes de llamar al LLM
+    if (!body.data.text && !body.data.audioBase64 && !body.data.imageBase64) {
+      return reply.status(400).send({ error: "Debe enviarse texto, audio o imagen" });
+    }
+
     const openai = getOpenAI();
     let userText = body.data.text ?? "";
 
@@ -225,19 +230,15 @@ Responde en español, sé breve (2-3 frases), amigable y práctico.`;
       messages.push({ role: "user", content: userText });
     }
 
-    // Guardar mensaje del usuario
-    let attachmentKey: string | null = null;
-    if (body.data.imageBase64) {
-      const ext = mimeToExt(body.data.imageMimeType ?? "image/jpeg");
-      attachmentKey = generateObjectKey(userId, "coach", ext);
-    }
-
+    // B5: las imágenes de coaching se envían inline a OpenAI pero NO se suben a object storage.
+    // El campo attachmentObjectKey se deja null intencionalmente para evitar que el purge worker
+    // intente borrar objetos que nunca existieron.
     await db.insert(schema.coachingMessages).values({
       threadId,
       role: "user",
       bodyText: userText,
       linkedMealEntryId: body.data.linkedMealEntryId ?? null,
-      attachmentObjectKey: attachmentKey,
+      attachmentObjectKey: null,
     });
 
     // Llamar al modelo

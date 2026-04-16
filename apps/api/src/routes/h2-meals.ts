@@ -34,21 +34,21 @@ const SubmitForAiBody = z.object({
 const ConfirmMealBody = z.object({
   /** Si el usuario acepta la estimación IA tal cual */
   acceptAiEstimate: z.boolean().optional(),
-  /** Si el usuario corrige manualmente */
-  quantityG: z.number().positive().max(5000).optional(),
-  kcal: z.number().positive().optional(),
-  proteinG: z.number().positive().optional(),
-  fatG: z.number().positive().optional(),
-  carbsG: z.number().positive().optional(),
+  /** Si el usuario corrige manualmente — min(0) para permitir agua/café negro */
+  quantityG: z.number().min(0).max(5000).optional(),
+  kcal: z.number().min(0).optional(),
+  proteinG: z.number().min(0).optional(),
+  fatG: z.number().min(0).optional(),
+  carbsG: z.number().min(0).optional(),
 });
 
 const CorrectionBody = z.object({
   userExplanationText: z.string().max(1000).optional(),
-  quantityG: z.number().positive().max(5000).optional(),
-  kcal: z.number().positive().optional(),
-  proteinG: z.number().positive().optional(),
-  fatG: z.number().positive().optional(),
-  carbsG: z.number().positive().optional(),
+  quantityG: z.number().min(0).max(5000).optional(),
+  kcal: z.number().min(0).optional(),
+  proteinG: z.number().min(0).optional(),
+  fatG: z.number().min(0).optional(),
+  carbsG: z.number().min(0).optional(),
 });
 
 const ReprocessBody = z.object({
@@ -57,10 +57,38 @@ const ReprocessBody = z.object({
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+type AiEstimate = {
+  foodName?: string;
+  kcal?: number;
+  proteinG?: number;
+  fatG?: number;
+  carbsG?: number;
+  reasoning?: string;
+} | null;
+
 function serializeEntry(entry: typeof schema.mealLogEntries.$inferSelect & {
   food?: { id: string; name: string; brand: string | null } | null;
   media?: Array<{ id: string; type: string; objectKey: string; mime: string }> | null;
+  corrections?: Array<{ id: string; userExplanationText: string | null; createdAt: Date }> | null;
+  aiInteractions?: Array<{ outputParsed: unknown; createdAt: Date }> | null;
 }) {
+  // Extraer estimación IA del interaction más reciente de tipo response
+  let aiEstimate: AiEstimate = null;
+  if (entry.aiInteractions && entry.aiInteractions.length > 0) {
+    const latest = entry.aiInteractions[entry.aiInteractions.length - 1];
+    const parsed = latest.outputParsed as Record<string, unknown> | null;
+    if (parsed) {
+      aiEstimate = {
+        foodName: parsed.foodName as string | undefined,
+        kcal: parsed.kcal as number | undefined,
+        proteinG: parsed.proteinG as number | undefined,
+        fatG: parsed.fatG as number | undefined,
+        carbsG: parsed.carbsG as number | undefined,
+        reasoning: parsed.reasoning as string | undefined,
+      };
+    }
+  }
+
   return {
     id: entry.id,
     foodId: entry.foodId,
@@ -76,7 +104,13 @@ function serializeEntry(entry: typeof schema.mealLogEntries.$inferSelect & {
     userNote: entry.userNote,
     loggedAt: entry.loggedAt,
     food: entry.food ?? null,
-    media: entry.media ?? [],
+    media: (entry.media ?? []).map((m) => ({ id: m.id, type: m.type, objectKey: m.objectKey, mime: m.mime })),
+    corrections: (entry.corrections ?? []).map((c) => ({
+      id: c.id,
+      userExplanationText: c.userExplanationText,
+      createdAt: c.createdAt instanceof Date ? c.createdAt.toISOString() : c.createdAt,
+    })),
+    aiEstimate,
   };
 }
 
@@ -316,6 +350,11 @@ export const h2MealsRoutes: FastifyPluginAsync = async (app) => {
     });
     if (!entry) return reply.status(404).send({ error: "entry_not_found" });
 
+    // B4: solo se puede confirmar desde pending_user_review (o ya confirmado para re-editar)
+    if (entry.status === "ai_processing" || entry.status === "draft" || entry.status === "awaiting_media") {
+      return reply.status(409).send({ error: "entry_not_reviewable", status: entry.status });
+    }
+
     const updates: Record<string, unknown> = {};
 
     if (body.data.acceptAiEstimate) {
@@ -541,6 +580,11 @@ export const h2MealsRoutes: FastifyPluginAsync = async (app) => {
         food: { columns: { id: true, name: true, brand: true } },
         media: { columns: { id: true, type: true, objectKey: true, mime: true } },
         corrections: { columns: { id: true, userExplanationText: true, createdAt: true } },
+        aiInteractions: {
+          where: eq(schema.aiInteractions.direction, "response"),
+          columns: { outputParsed: true, createdAt: true },
+          orderBy: (t, { asc }) => [asc(t.createdAt)],
+        },
       },
     });
     if (!entry) return reply.status(404).send({ error: "entry_not_found" });

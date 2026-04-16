@@ -5,7 +5,7 @@
  * soporta texto, audio (base64) e imágenes.
  */
 
-import { Camera, Image, Mic, MicOff, Send, Trash2 } from "lucide-react";
+import { Camera, Image, Mic, MicOff, RefreshCw, Send, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { MarkdownText } from "@/components/ui/markdown-text";
@@ -56,6 +56,7 @@ export function CoachingPage() {
   const [sending, setSending] = useState(false);
   const [recording, setRecording] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -73,7 +74,10 @@ export function CoachingPage() {
         const res = await coachingApi.getMessages(t.id);
         setMessages(res.messages.filter((m) => m.role !== "system"));
       })
-      .catch(console.error)
+      .catch((err) => {
+        console.error("Error cargando hilo de coaching:", err);
+        setLoadError(true);
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -221,6 +225,18 @@ export function CoachingPage() {
             </div>
           )}
 
+          {!loading && loadError && (
+            <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
+              <p className="text-sm text-muted-foreground">No se pudo conectar con el coach.</p>
+              <button
+                onClick={() => { setLoadError(false); setLoading(true); coachingApi.getThread().then(async (t) => { setThread(t); const res = await coachingApi.getMessages(t.id); setMessages(res.messages.filter((m) => m.role !== "system")); }).catch(() => setLoadError(true)).finally(() => setLoading(false)); }}
+                className="text-sm text-primary hover:underline"
+              >
+                Reintentar
+              </button>
+            </div>
+          )}
+
           {!loading && isEmpty && (
             <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
               <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 text-2xl">🧠</div>
@@ -266,6 +282,14 @@ export function CoachingPage() {
             className="shrink-0 flex h-10 w-10 items-center justify-center rounded-xl bg-muted/50 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-40"
           >
             <Image className="h-5 w-5" />
+          </button>
+
+          <button
+            onClick={() => cameraInputRef.current?.click()}
+            disabled={sending || recording}
+            className="shrink-0 flex h-10 w-10 items-center justify-center rounded-xl bg-muted/50 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-40"
+          >
+            <Camera className="h-5 w-5" />
           </button>
 
           <div className="flex-1 relative">

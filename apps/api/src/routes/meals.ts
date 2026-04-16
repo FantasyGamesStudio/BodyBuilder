@@ -561,12 +561,12 @@ export const mealsRoutes: FastifyPluginAsync = async (app) => {
       return { date, hasData, eatKcal, kcalTarget: kcalTargetForDay, progress };
     });
 
-    // Totales de la semana
+    // Totales de la semana — calculados directamente de las entradas para no depender del target
     const weekTotals = {
-      kcal: days.reduce((s, d) => s + (d.progress?.totals.kcal ?? 0), 0),
-      proteinG: days.reduce((s, d) => s + (d.progress?.totals.proteinG ?? 0), 0),
-      fatG: days.reduce((s, d) => s + (d.progress?.totals.fatG ?? 0), 0),
-      carbsG: days.reduce((s, d) => s + (d.progress?.totals.carbsG ?? 0), 0),
+      kcal: allEntries.reduce((s, e) => s + e.kcal, 0),
+      proteinG: allEntries.reduce((s, e) => s + Number(e.proteinG), 0),
+      fatG: allEntries.reduce((s, e) => s + Number(e.fatG), 0),
+      carbsG: allEntries.reduce((s, e) => s + Number(e.carbsG), 0),
     };
 
     return reply.send({

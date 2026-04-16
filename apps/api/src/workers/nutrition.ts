@@ -250,8 +250,20 @@ Reglas:
     if (job) console.log(`✅ Job ${job.id} completado: ${JSON.stringify(job.returnvalue)}`);
   });
 
-  worker.on("failed", (job: Job<unknown, unknown, string> | undefined, err: Error) => {
+  worker.on("failed", async (job: Job<NutritionEstimateJob, unknown, string> | undefined, err: Error) => {
     console.error(`❌ Job ${job?.id} falló: ${err.message}`);
+    // B6: si el job agotó todos los reintentos, marcar la entry como error_ai
+    // para que no quede en ai_processing indefinidamente
+    if (job && (job.attemptsMade ?? 0) >= (job.opts?.attempts ?? 3)) {
+      const mealEntryId = job.data?.mealEntryId;
+      if (mealEntryId) {
+        await db
+          .update(schema.mealLogEntries)
+          .set({ status: "error_ai" })
+          .where(eq(schema.mealLogEntries.id, mealEntryId))
+          .catch((e: unknown) => console.error("Error marcando entry como error_ai:", e));
+      }
+    }
   });
 
   return worker;

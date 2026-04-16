@@ -430,6 +430,7 @@ export const mealLogEntriesRelations = relations(mealLogEntries, ({ one, many })
   food: one(foods, { fields: [mealLogEntries.foodId], references: [foods.id] }),
   media: many(mealMedia),
   corrections: many(mealCorrections),
+  aiInteractions: many(aiInteractions),
 }));
 
 export const mealMediaRelations = relations(mealMedia, ({ one }) => ({

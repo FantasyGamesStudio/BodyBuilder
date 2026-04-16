@@ -201,7 +201,7 @@ export interface MealEntry {
   proteinG: number;
   fatG: number;
   carbsG: number;
-  status: "draft" | "awaiting_media" | "ai_processing" | "pending_user_review" | "confirmed" | "corrected";
+  status: "draft" | "awaiting_media" | "ai_processing" | "pending_user_review" | "confirmed" | "corrected" | "error_ai";
   userNote: string | null;
   loggedAt: string;
 }
