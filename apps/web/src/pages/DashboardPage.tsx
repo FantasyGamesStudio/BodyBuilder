@@ -967,7 +967,9 @@ function MonthlyView({
           </div>
         </CardContent>
       </Card>
-
+    </div>
+  );
+}
 
 // ─── Vista semanal ────────────────────────────────────────────────────────────
 
