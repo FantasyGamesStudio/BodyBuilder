@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { MarkdownText } from "@/components/ui/markdown-text";
-import { advisorApi, mealsApi, onboardingApi, workoutsApi, type ActiveTarget, type AdvisorAddedEntry, type AdvisorMessage, type DayResponse, type MealEntry, type MonthDaySummary, type MonthResponse, type RecurringFood, type WeekDaySummary, type WeekResponse, type WorkoutLog } from "@/lib/api";
+import { advisorApi, mealsApi, onboardingApi, workoutsApi, type ActiveTarget, type AdvisorAddedEntry, type AdvisorMessage, type DayResponse, type MealEntry, type MonthDaySummary, type MonthResponse, type WeekDaySummary, type WeekResponse, type WorkoutLog } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
