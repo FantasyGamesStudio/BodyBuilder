@@ -285,8 +285,19 @@ export const advisorRoutes: FastifyPluginAsync = async (app) => {
         properties: {
           text: { type: "string", maxLength: 2000 },
           audioBase64: { type: "string", description: "Audio en base64 (webm/mp4) para transcribir con Whisper" },
-          imageBase64: { type: "string", description: "Imagen en base64 (jpeg/png/webp)" },
+          imageBase64: { type: "string", description: "Imagen en base64 (jpeg/png/webp) — compatibilidad hacia atrás" },
           imageMimeType: { type: "string" },
+          images: {
+            type: "array",
+            description: "Array de imágenes en base64",
+            items: {
+              type: "object",
+              properties: {
+                imageBase64: { type: "string" },
+                mimeType: { type: "string" },
+              },
+            },
+          },
         },
       },
     },
@@ -294,14 +305,23 @@ export const advisorRoutes: FastifyPluginAsync = async (app) => {
   }, async (req, reply) => {
     const userId = req.user.sub;
     const { date } = req.params as { date: string };
-    const { text, audioBase64, imageBase64, imageMimeType } = req.body as {
+    const { text, audioBase64, imageBase64, imageMimeType, images } = req.body as {
       text?: string;
       audioBase64?: string;
       imageBase64?: string;
       imageMimeType?: string;
+      images?: Array<{ imageBase64: string; mimeType: string }>;
     };
 
-    if (!text && !audioBase64 && !imageBase64) {
+    // Normalizar: si llega `images[]` usarlo, si llega `imageBase64` solo convertir a array
+    const imageList: Array<{ imageBase64: string; mimeType: string }> =
+      images && images.length > 0
+        ? images
+        : imageBase64
+          ? [{ imageBase64, mimeType: imageMimeType ?? "image/jpeg" }]
+          : [];
+
+    if (!text && !audioBase64 && imageList.length === 0) {
       return reply.status(400).send({ error: "Debe enviarse texto, audio o imagen" });
     }
 
@@ -340,16 +360,16 @@ export const advisorRoutes: FastifyPluginAsync = async (app) => {
       })),
     ];
 
-    // Mensaje del usuario actual (puede incluir imagen)
-    if (imageBase64) {
+    // Mensaje del usuario actual (puede incluir una o varias imágenes)
+    if (imageList.length > 0) {
       messages.push({
         role: "user",
         content: [
           ...(userText ? [{ type: "text" as const, text: userText }] : []),
-          {
+          ...imageList.map((img) => ({
             type: "image_url" as const,
-            image_url: { url: `data:${imageMimeType ?? "image/jpeg"};base64,${imageBase64}` },
-          },
+            image_url: { url: `data:${img.mimeType};base64,${img.imageBase64}` },
+          })),
         ],
       });
     } else {

@@ -1,4 +1,4 @@
-import { Bot, Camera, ChevronLeft, Image, Mic, MicOff, PlusCircle, Send, Star, Trash2 } from "lucide-react";
+import { Bot, Camera, ChevronLeft, Image, Mic, MicOff, PlusCircle, Send, Star, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { advisorApi, mealsApi, type MealEntry, type RecurringFood } from "@/lib/api";
@@ -38,6 +38,7 @@ export function LogMealPage() {
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [lastReply, setLastReply] = useState<string | null>(null);
+  const [pendingImages, setPendingImages] = useState<Array<{ base64: string; mimeType: string; preview: string }>>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
@@ -131,16 +132,19 @@ export function LogMealPage() {
   }
 
   // ── Asesor ────────────────────────────────────────────────────────────────
-  async function send(opts: { text?: string; imageBase64?: string; imageMimeType?: string }) {
+  async function send(opts: { text?: string; images?: Array<{ base64: string; mimeType: string }> }) {
     if (sending) return;
     setSending(true);
     setLastReply(null);
     try {
-      const payload = { ...opts };
-      if (opts.text) payload.text = `[${slotLabel}] ${opts.text}`;
-      const res = await advisorApi.message(date, payload);
+      const apiImages = (opts.images ?? []).map((img) => ({ imageBase64: img.base64, mimeType: img.mimeType }));
+      const res = await advisorApi.message(date, {
+        text: opts.text ? `[${slotLabel}] ${opts.text}` : undefined,
+        images: apiImages.length > 0 ? apiImages : undefined,
+      });
       setLastReply(res.reply);
       setText("");
+      setPendingImages([]);
       if (res.addedEntries.length > 0) setTimeout(() => refreshEntries(), 300);
     } catch {
       setLastReply("Ha ocurrido un error. Inténtalo de nuevo.");
@@ -149,7 +153,12 @@ export function LogMealPage() {
     }
   }
 
-  function handleSend() { if (text.trim()) send({ text: text.trim() }); }
+  function handleSend() {
+    if (recording) { stopAndTranscribe(); return; }
+    const hasContent = text.trim() || pendingImages.length > 0;
+    if (!hasContent || sending || transcribing) return;
+    send({ text: text.trim() || undefined, images: pendingImages });
+  }
 
   async function startRecording() {
     try {
@@ -194,12 +203,31 @@ export function LogMealPage() {
     setRecording(false);
   }
 
-  function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onloadend = () => send({ imageBase64: (reader.result as string).split(",")[1], imageMimeType: file.type });
-    reader.readAsDataURL(file);
+  function addFilesToQueue(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    Array.from(files).forEach((file) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const dataUrl = reader.result as string;
+        const base64 = dataUrl.split(",")[1];
+        setPendingImages((prev) => [...prev, { base64, mimeType: file.type, preview: dataUrl }]);
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function handleCameraChange(e: React.ChangeEvent<HTMLInputElement>) {
+    addFilesToQueue(e.target.files);
     e.target.value = "";
+  }
+
+  function handleGalleryChange(e: React.ChangeEvent<HTMLInputElement>) {
+    addFilesToQueue(e.target.files);
+    e.target.value = "";
+  }
+
+  function removeImage(idx: number) {
+    setPendingImages((prev) => prev.filter((_, i) => i !== idx));
   }
 
   const total = entries.reduce((s, e) => s + e.kcal, 0);
@@ -333,12 +361,28 @@ export function LogMealPage() {
               </div>
             )}
 
-            <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleImageChange} />
-            <input ref={galleryInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
+            <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleCameraChange} />
+            <input ref={galleryInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleGalleryChange} />
             <div className={cn(
               "flex flex-col rounded-2xl border bg-card transition-colors",
               recording ? "border-red-500/50 bg-red-500/5" : "border-border/60 focus-within:border-primary/60",
             )}>
+              {/* Miniaturas de imágenes pendientes */}
+              {pendingImages.length > 0 && (
+                <div className="flex flex-wrap gap-2 px-3 pt-3">
+                  {pendingImages.map((img, i) => (
+                    <div key={i} className="relative shrink-0">
+                      <img src={img.preview} alt="" className="h-16 w-16 rounded-lg object-cover border border-border/40" />
+                      <button
+                        onClick={() => removeImage(i)}
+                        className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-background border border-border/60 text-muted-foreground hover:text-destructive transition-colors"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
               <textarea
                 ref={textareaRef}
                 value={text}
@@ -355,7 +399,7 @@ export function LogMealPage() {
                 onInput={(e) => { const t = e.currentTarget; t.style.height = "auto"; t.style.height = `${Math.min(t.scrollHeight, 128)}px`; }}
               />
               <div className="flex items-center gap-1 px-2 pb-2 pt-1">
-                {/* Galería */}
+                {/* Galería (múltiple) */}
                 <button
                   onClick={() => galleryInputRef.current?.click()}
                   disabled={sending || transcribing || recording}
@@ -387,8 +431,8 @@ export function LogMealPage() {
                 </button>
                 <div className="flex-1" />
                 <button
-                  onClick={recording ? stopAndTranscribe : handleSend}
-                  disabled={!recording && (!text.trim() || sending || transcribing)}
+                  onClick={handleSend}
+                  disabled={!recording && (!text.trim() && pendingImages.length === 0) || (sending || transcribing)}
                   className="flex items-center gap-2 h-9 px-4 rounded-xl bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors disabled:opacity-40"
                 >
                   {(sending || transcribing)

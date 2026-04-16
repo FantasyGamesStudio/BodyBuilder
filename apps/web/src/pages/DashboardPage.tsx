@@ -1,4 +1,4 @@
-import { Bot, Camera, ChevronLeft, ChevronRight, Dumbbell, Image, Mic, MicOff, Plus, Send, Star, Trash2 } from "lucide-react";
+import { Bot, Camera, ChevronLeft, ChevronRight, Dumbbell, Image, Mic, MicOff, Plus, Send, Star, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
@@ -442,6 +442,8 @@ const SLOT_ES_ADVISOR: Record<string, string> = {
   breakfast: "Desayuno", lunch: "Comida", dinner: "Cena", snack: "Snack", other: "Otro",
 };
 
+type PendingImage = { base64: string; mimeType: string; preview: string };
+
 function AdvisorInline({
   date,
   onEntriesAdded,
@@ -455,6 +457,7 @@ function AdvisorInline({
   const [sending, setSending] = useState(false);
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
+  const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
   const [lastReply, setLastReply] = useState<{ message: AdvisorMessage; entries: AdvisorAddedEntry[] } | null>(null);
   const [markedIds, setMarkedIds] = useState<Set<string>>(new Set());
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -464,15 +467,20 @@ function AdvisorInline({
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  async function send(opts: { text?: string; imageBase64?: string; imageMimeType?: string }) {
+  async function send(opts: { text?: string; images?: PendingImage[] }) {
     if (sending) return;
     setSending(true);
-    setLastReply(null); // limpiar respuesta anterior antes de enviar
+    setLastReply(null);
     try {
-      const res = await advisorApi.message(date, opts);
+      const apiImages = (opts.images ?? []).map((img) => ({ imageBase64: img.base64, mimeType: img.mimeType }));
+      const res = await advisorApi.message(date, {
+        text: opts.text,
+        images: apiImages.length > 0 ? apiImages : undefined,
+      });
       setLastReply({ message: { id: Date.now().toString(), role: "assistant", content: res.reply, createdAt: new Date().toISOString() }, entries: res.addedEntries });
       if (res.addedEntries.length > 0) setTimeout(() => onEntriesAdded(), 300);
       setText("");
+      setPendingImages([]);
     } catch {
       setLastReply({ message: { id: Date.now().toString(), role: "assistant", content: "Ha ocurrido un error. Inténtalo de nuevo.", createdAt: "" }, entries: [] });
     } finally {
@@ -480,9 +488,11 @@ function AdvisorInline({
     }
   }
 
-  function handleSendText() {
-    if (!text.trim()) return;
-    send({ text: text.trim() });
+  function handleSend() {
+    if (recording) { stopAndTranscribe(); return; }
+    const hasContent = text.trim() || pendingImages.length > 0;
+    if (!hasContent || busy) return;
+    send({ text: text.trim() || undefined, images: pendingImages });
   }
 
   // ── Micrófono ─────────────────────────────────────────────────────────────
@@ -497,8 +507,7 @@ function AdvisorInline({
       mr.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       mr.onstop = async () => {
         stream.getTracks().forEach((t) => t.stop());
-        if (cancelRecordingRef.current) return; // descartado por el usuario
-        // Transcribir y poner en el textarea
+        if (cancelRecordingRef.current) return;
         const blob = new Blob(audioChunksRef.current, { type: mimeType });
         const reader = new FileReader();
         reader.onloadend = async () => {
@@ -509,7 +518,7 @@ function AdvisorInline({
             setText(transcribed);
             setTimeout(() => textareaRef.current?.focus(), 50);
           } catch {
-            setText(""); // si falla, dejar el campo vacío
+            setText("");
           } finally {
             setTranscribing(false);
           }
@@ -534,14 +543,33 @@ function AdvisorInline({
     setRecording(false);
   }
 
-  // ── Imagen ────────────────────────────────────────────────────────────────
+  // ── Imágenes ──────────────────────────────────────────────────────────────
 
-  function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onloadend = () => send({ imageBase64: (reader.result as string).split(",")[1], imageMimeType: file.type });
-    reader.readAsDataURL(file);
+  function addFilesToQueue(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    Array.from(files).forEach((file) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const dataUrl = reader.result as string;
+        const base64 = dataUrl.split(",")[1];
+        setPendingImages((prev) => [...prev, { base64, mimeType: file.type, preview: dataUrl }]);
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function handleCameraChange(e: React.ChangeEvent<HTMLInputElement>) {
+    addFilesToQueue(e.target.files);
     e.target.value = "";
+  }
+
+  function handleGalleryChange(e: React.ChangeEvent<HTMLInputElement>) {
+    addFilesToQueue(e.target.files);
+    e.target.value = "";
+  }
+
+  function removeImage(idx: number) {
+    setPendingImages((prev) => prev.filter((_, i) => i !== idx));
   }
 
   // ── Estrella ──────────────────────────────────────────────────────────────
@@ -554,6 +582,7 @@ function AdvisorInline({
   }
 
   const busy = sending || transcribing;
+  const canSend = recording || text.trim().length > 0 || pendingImages.length > 0;
 
   return (
     <div className="space-y-3">
@@ -589,21 +618,37 @@ function AdvisorInline({
       )}
 
       {/* Input */}
-      <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleImageChange} />
-      <input ref={galleryInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
+      <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleCameraChange} />
+      <input ref={galleryInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleGalleryChange} />
       <div className={cn(
         "flex flex-col rounded-2xl border bg-card transition-colors",
         recording ? "border-red-500/50 bg-red-500/5" : "border-border/60 focus-within:border-primary/60",
       )}>
+        {/* Miniaturas de imágenes pendientes */}
+        {pendingImages.length > 0 && (
+          <div className="flex flex-wrap gap-2 px-3 pt-3">
+            {pendingImages.map((img, i) => (
+              <div key={i} className="relative shrink-0">
+                <img src={img.preview} alt="" className="h-16 w-16 rounded-lg object-cover border border-border/40" />
+                <button
+                  onClick={() => removeImage(i)}
+                  className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-background border border-border/60 text-muted-foreground hover:text-destructive transition-colors"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <textarea
           ref={textareaRef}
           value={text}
           onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendText(); } }}
+          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
           placeholder={
             recording ? "Grabando… pulsa Enviar para transcribir o el micrófono para cancelar"
             : transcribing ? "Transcribiendo audio…"
-            : "¿Qué has comido? Escribe o graba un audio…"
+            : "¿Qué has comido? Escribe, graba o añade fotos…"
           }
           disabled={busy || recording}
           rows={2}
@@ -615,7 +660,7 @@ function AdvisorInline({
           onInput={(e) => { const t = e.currentTarget; t.style.height = "auto"; t.style.height = `${Math.min(t.scrollHeight, 128)}px`; }}
         />
         <div className="flex items-center gap-1 px-2 pb-2 pt-1">
-          {/* Galería */}
+          {/* Galería (múltiple) */}
           <button
             onClick={() => galleryInputRef.current?.click()}
             disabled={busy || recording}
@@ -633,7 +678,7 @@ function AdvisorInline({
           >
             <Camera className="h-4 w-4" />
           </button>
-          {/* Micrófono: rojo mientras graba (tap = cancelar) */}
+          {/* Micrófono */}
           <button
             onClick={recording ? cancelRecording : startRecording}
             disabled={busy}
@@ -646,10 +691,10 @@ function AdvisorInline({
             {recording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
           </button>
           <div className="flex-1" />
-          {/* Enviar: mientras graba = transcribir (sin enviar aún) */}
+          {/* Enviar */}
           <button
-            onClick={recording ? stopAndTranscribe : handleSendText}
-            disabled={!recording && (!text.trim() || busy)}
+            onClick={handleSend}
+            disabled={!canSend || busy}
             className="flex items-center gap-2 h-9 px-4 rounded-xl bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors disabled:opacity-40"
           >
             {busy

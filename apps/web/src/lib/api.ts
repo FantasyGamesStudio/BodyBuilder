@@ -347,8 +347,13 @@ export interface RecurringFood {
 export const advisorApi = {
   history: (date: string) =>
     api.get<{ messages: AdvisorMessage[] }>(`/advisor/${date}/history`),
-  message: (date: string, data: { text?: string; audioBase64?: string; imageBase64?: string; imageMimeType?: string }) =>
-    api.post<AdvisorResponse>(`/advisor/${date}/message`, data),
+  message: (date: string, data: {
+    text?: string;
+    audioBase64?: string;
+    imageBase64?: string;
+    imageMimeType?: string;
+    images?: Array<{ imageBase64: string; mimeType: string }>;
+  }) => api.post<AdvisorResponse>(`/advisor/${date}/message`, data),
   recurring: () => api.get<{ items: RecurringFood[] }>("/advisor/recurring"),
   markRecurring: (mealEntryId: string) =>
     api.post<{ id: string }>("/advisor/recurring", { mealEntryId }),
