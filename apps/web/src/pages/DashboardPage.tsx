@@ -5,6 +5,7 @@ import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { MarkdownText } from "@/components/ui/markdown-text";
 import { advisorApi, mealsApi, onboardingApi, workoutsApi, type ActiveTarget, type AdvisorAddedEntry, type AdvisorMessage, type DayResponse, type MealEntry, type RecurringFood, type WeekDaySummary, type WeekResponse, type WorkoutLog } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -641,7 +642,7 @@ function AdvisorInline({
                     ? "bg-primary text-primary-foreground rounded-br-sm"
                     : "bg-card border border-border/60 text-foreground rounded-bl-sm",
                 )}>
-                  {entry.message.content}
+                  {isUser ? entry.message.content : <MarkdownText text={entry.message.content} />}
                 </div>
                 {entry.addedEntries && entry.addedEntries.length > 0 && (
                   <div className="w-full max-w-sm space-y-1.5">
@@ -1237,13 +1238,52 @@ export function DashboardPage() {
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-violet-700 shadow-md shadow-violet-500/25">
                 <Bot className="h-4 w-4 text-white" />
               </div>
-              <div>
-                <h2 className="text-sm font-semibold leading-none">Asesor del día</h2>
-                <p className="text-[11px] text-muted-foreground mt-0.5">Cuéntame qué has comido o pídeme consejo</p>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-sm font-semibold leading-none">Asesor del día</h2>
+                  <span className="h-1.5 w-1.5 rounded-full bg-green-400 animate-pulse shrink-0" />
+                </div>
+                {target && (
+                  <div className="mt-1.5 flex items-center gap-2">
+                    <div className="flex-1 h-1.5 rounded-full bg-muted/50 overflow-hidden">
+                      <div
+                        className={cn(
+                          "h-full rounded-full transition-all duration-700",
+                          kcalStatus === "green" ? "bg-green-500" :
+                          kcalStatus === "yellow" ? "bg-yellow-500" : "bg-red-500",
+                        )}
+                        style={{ width: `${Math.min((consumed.kcal / effectiveKcalTarget) * 100, 100)}%` }}
+                      />
+                    </div>
+                    <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">
+                      {consumed.kcal}/{effectiveKcalTarget} kcal
+                    </span>
+                  </div>
+                )}
               </div>
-              <div className="ml-auto flex items-center gap-1">
-                <span className="h-1.5 w-1.5 rounded-full bg-green-400 animate-pulse" />
-                <span className="text-[10px] text-green-400 font-medium">Online</span>
+            </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-sm font-semibold leading-none">Asesor del día</h2>
+                  <span className="h-1.5 w-1.5 rounded-full bg-green-400 animate-pulse shrink-0" />
+                </div>
+                {target && (
+                  <div className="mt-1.5 flex items-center gap-2">
+                    <div className="flex-1 h-1.5 rounded-full bg-muted/50 overflow-hidden">
+                      <div
+                        className={cn(
+                          "h-full rounded-full transition-all duration-700",
+                          kcalStatus === "green" ? "bg-green-500" :
+                          kcalStatus === "yellow" ? "bg-yellow-500" : "bg-red-500",
+                        )}
+                        style={{ width: `${Math.min((consumed.kcal / effectiveKcalTarget) * 100, 100)}%` }}
+                      />
+                    </div>
+                    <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">
+                      {consumed.kcal}/{effectiveKcalTarget} kcal
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 
