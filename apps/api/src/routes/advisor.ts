@@ -165,7 +165,8 @@ HISTORIAL ÚLTIMOS 3 DÍAS:
 ${historySummary}
 
 INSTRUCCIONES:
-- Cuando el usuario describa comidas (pasadas o presentes), usa add_meal_entries() inmediatamente.
+- Cuando el usuario describa O MUESTRE (en imágenes) comidas, usa add_meal_entries() inmediatamente.
+- Con imágenes: identifica TODOS los alimentos visibles y regístralos aunque el sistema indique que ya existen entradas similares. El usuario puede estar comiendo lo mismo en diferentes momentos del día.
 - REGLA DE AGRUPADO: crea UNA entrada por alimento/plato diferente que se come por separado.
   - Si varios ingredientes se mezclan en una sola preparación (un batido, un café con leche, unas tostadas con mantequilla), es UNA entrada con los macros sumados.
   - Solo desglosa si los alimentos se toman por separado (ej. un bocadillo Y una fruta = 2 entradas).
@@ -179,7 +180,8 @@ INSTRUCCIONES:
 - Si ves patrones problemáticos en el historial (exceso de grasa, déficit de proteína...), coméntalo brevemente.
 - Si el usuario pide sugerencias, propón opciones que cuadren con los macros restantes.
 - Sé breve: 2-3 frases máximo salvo que te pidan más detalle.
-- No repitas los valores numéricos que ya has registrado, solo confirma lo añadido con el nombre.`;
+- No repitas los valores numéricos que ya has registrado, solo confirma lo añadido con el nombre.
+- La lista de "ENTRADAS YA REGISTRADAS" es solo orientativa para evitar duplicados obvios; si el usuario muestra imágenes nuevas, SIEMPRE registra lo que se ve.`;
 }
 
 // ─── Plugin ──────────────────────────────────────────────────────────────────
@@ -362,19 +364,27 @@ export const advisorRoutes: FastifyPluginAsync = async (app) => {
 
     // Mensaje del usuario actual (puede incluir una o varias imágenes)
     if (imageList.length > 0) {
+      // Si solo hay imágenes (sin texto), añadimos un prompt implícito para guiar al modelo
+      const textContent = userText || "Analiza estos alimentos y regístralos en mi diario.";
       messages.push({
         role: "user",
         content: [
-          ...(userText ? [{ type: "text" as const, text: userText }] : []),
+          { type: "text" as const, text: textContent },
           ...imageList.map((img) => ({
             type: "image_url" as const,
-            image_url: { url: `data:${img.mimeType};base64,${img.imageBase64}` },
+            image_url: { url: `data:${img.mimeType};base64,${img.imageBase64}`, detail: "low" as const },
           })),
         ],
       });
     } else {
       messages.push({ role: "user", content: userText });
     }
+
+    // Cuando hay imágenes, forzamos el tool call: el usuario siempre quiere registrar lo que muestra
+    const toolChoice: OpenAI.Chat.ChatCompletionToolChoiceOption =
+      imageList.length > 0
+        ? { type: "function", function: { name: "add_meal_entries" } }
+        : "auto";
 
     // ── 4. Llamar al modelo ───────────────────────────────────────────────────
     let response: OpenAI.Chat.ChatCompletion;
@@ -383,7 +393,7 @@ export const advisorRoutes: FastifyPluginAsync = async (app) => {
         model: env.OPENAI_MODEL,
         messages,
         tools,
-        tool_choice: "auto",
+        tool_choice: toolChoice,
         max_tokens: 1024,
       });
     } catch (err: unknown) {
