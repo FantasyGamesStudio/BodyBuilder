@@ -479,7 +479,8 @@ function AdvisorInline({
         images: apiImages.length > 0 ? apiImages : undefined,
       });
       setLastReply({ message: { id: Date.now().toString(), role: "assistant", content: res.reply, createdAt: new Date().toISOString() }, entries: res.addedEntries });
-      if (res.addedEntries.length > 0) setTimeout(() => onEntriesAdded(), 300);
+      // Siempre refrescamos el día: puede haber entradas pre-existentes o recién añadidas
+      setTimeout(() => onEntriesAdded(), 300);
       setText("");
       setPendingImages([]);
     } catch {

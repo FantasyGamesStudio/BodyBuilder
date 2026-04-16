@@ -146,7 +146,8 @@ export function LogMealPage() {
       setLastReply(res.reply);
       setText("");
       setPendingImages([]);
-      if (res.addedEntries.length > 0) setTimeout(() => refreshEntries(), 300);
+      // Siempre refrescamos: puede haber entradas pre-existentes o recién añadidas
+      setTimeout(() => refreshEntries(), 300);
     } catch {
       setLastReply("Ha ocurrido un error. Inténtalo de nuevo.");
     } finally {
