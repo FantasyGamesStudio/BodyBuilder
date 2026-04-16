@@ -5,7 +5,7 @@
       "destination": "https://bodybuilder-production.up.railway.app/v1/:path*"
     },
     {
-      "source": "/((?!v1|assets).*)",
+      "source": "/((?!v1|api|assets).*)",
       "destination": "/index.html"
     }
   ]

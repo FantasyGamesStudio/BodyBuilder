@@ -356,6 +356,17 @@ export const advisorApi = {
     api.post<{ id: string }>(`/advisor/recurring/${id}/log`, { nutritionDate, mealSlot }),
   deleteRecurring: (id: string) =>
     api.delete<{ ok: boolean }>(`/advisor/recurring/${id}`),
-  transcribe: (audioBase64: string, mimeType?: string) =>
-    api.post<{ text: string }>("/advisor/transcribe", { audioBase64, mimeType }),
+  transcribe: async (audioBase64: string, mimeType?: string): Promise<{ text: string }> => {
+    // Llama a la Vercel Serverless Function directamente (no pasa por Railway)
+    const res = await fetch("/api/transcribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ audioBase64, mimeType }),
+    });
+    if (!res.ok) {
+      const err = await res.json() as { error?: string };
+      throw new ApiError(res.status, "transcribe_error", err.error ?? "Error al transcribir");
+    }
+    return res.json() as Promise<{ text: string }>;
+  },
 };
