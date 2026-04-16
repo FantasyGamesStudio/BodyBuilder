@@ -1137,7 +1137,6 @@ export function DashboardPage() {
   const [weekStart, setWeekStart] = useState(() => getMondayISO(todayISO()));
   const [monthYear, setMonthYear] = useState(getCurrentYearMonth);
   const [advisorOpen, setAdvisorOpen] = useState(false);
-  const [weekStart, setWeekStart] = useState(() => getMondayISO(todayISO()));
   const [data, setData] = useState<DayResponse | null>(null);
   const [target, setTarget] = useState<ActiveTarget | null>(null);
   const [recurring, setRecurring] = useState<RecurringFood[]>([]);
