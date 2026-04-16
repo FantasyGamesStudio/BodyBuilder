@@ -1,4 +1,5 @@
 import { Bot, Camera, ChevronLeft, Image, Mic, MicOff, PlusCircle, Send, Star, Trash2, X } from "lucide-react";
+import { compressImage } from "@/lib/image";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { advisorApi, mealsApi, type MealEntry, type RecurringFood } from "@/lib/api";
@@ -206,13 +207,9 @@ export function LogMealPage() {
   function addFilesToQueue(files: FileList | null) {
     if (!files || files.length === 0) return;
     Array.from(files).forEach((file) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const dataUrl = reader.result as string;
-        const base64 = dataUrl.split(",")[1];
-        setPendingImages((prev) => [...prev, { base64, mimeType: file.type, preview: dataUrl }]);
-      };
-      reader.readAsDataURL(file);
+      compressImage(file).then((img) => {
+        setPendingImages((prev) => [...prev, img]);
+      }).catch(() => {/* imagen inválida, ignorar */});
     });
   }
 
