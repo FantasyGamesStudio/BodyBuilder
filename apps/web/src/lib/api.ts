@@ -256,6 +256,8 @@ export interface WorkoutLog {
   workoutDate: string;
   kcalBurned: number;
   notes: string | null;
+  status: "done" | "planned";
+  plannedAt: string | null;
   createdAt: string;
 }
 
@@ -265,6 +267,7 @@ export interface DayResponse {
   bySlot: Record<string, MealEntry[]>;
   workouts: WorkoutLog[];
   eatKcal: number;
+  goalMode: string | null;
   progress: DayProgress | null;
 }
 
@@ -328,9 +331,23 @@ export interface WeekResponse {
   } | null;
 }
 
+export interface MonthDaySummary {
+  date: string;
+  hasData: boolean;
+  kcalConsumed: number;
+  kcalTarget: number;
+  status: "green" | "yellow" | "red" | null;
+}
+
+export interface MonthResponse {
+  yearMonth: string;
+  days: MonthDaySummary[];
+}
+
 export const mealsApi = {
   day: (date: string) => api.get<DayResponse>(`/meals/day/${date}`),
   week: (weekStart: string) => api.get<WeekResponse>(`/meals/week/${weekStart}`),
+  month: (yearMonth: string) => api.get<MonthResponse>(`/meals/month/${yearMonth}`),
   log: (data: { foodId: string; nutritionDate: string; mealSlot: string; quantityG: number }) =>
     api.post<MealEntry>("/meals", data),
   update: (id: string, data: { quantityG?: number; mealSlot?: string }) =>
@@ -339,8 +356,10 @@ export const mealsApi = {
 };
 
 export const workoutsApi = {
-  log: (data: { workoutDate: string; kcalBurned: number; notes?: string }) =>
+  log: (data: { workoutDate: string; kcalBurned: number; notes?: string; status?: "done" | "planned"; plannedAt?: string }) =>
     api.post<WorkoutLog>("/workouts", data),
+  patch: (id: string, data: { kcalBurned?: number; notes?: string; status?: "done" | "planned"; plannedAt?: string | null }) =>
+    api.patch<WorkoutLog>(`/workouts/${id}`, data),
   delete: (id: string) => api.delete<null>(`/workouts/${id}`),
 };
 

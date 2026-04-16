@@ -149,6 +149,7 @@ export function AdvisorPage() {
   const [markedIds, setMarkedIds] = useState<Set<string>>(new Set());
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -162,13 +163,22 @@ export function AdvisorPage() {
     ]).then(([historyRes, recurringRes]) => {
       setEntries(historyRes.messages.map((m) => ({ message: m })));
       setRecurring(recurringRes.items);
-    }).catch(() => {});
+    }).catch((err) => {
+      console.error("Error cargando historial/rotativo:", err);
+    });
   }, [date]);
 
   // Auto-scroll al fondo
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [entries, sending]);
+
+  // Scroll al fondo al montar con historial cargado
+  useEffect(() => {
+    if (entries.length > 0) {
+      messagesContainerRef.current?.scrollTo({ top: messagesContainerRef.current.scrollHeight });
+    }
+  }, [entries.length > 0]);
 
   // ── Enviar mensaje ─────────────────────────────────────────────────────────
   async function sendMessage(opts: {
@@ -318,7 +328,7 @@ export function AdvisorPage() {
   const isEmpty = entries.length === 0;
 
   return (
-    <div className="flex flex-col h-full max-h-[calc(100vh-4rem)] md:max-h-screen">
+    <div className="flex flex-col h-[calc(100dvh-3.5rem)] md:h-full">
       {/* ── Cabecera ──────────────────────────────────────────────────────── */}
       <div className="px-4 pt-5 pb-3 border-b border-border/40 shrink-0">
         <div className="flex items-center gap-3 max-w-lg mx-auto">
@@ -346,8 +356,8 @@ export function AdvisorPage() {
         )}
       </div>
 
-      {/* ── Mensajes ──────────────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto px-4 py-4">
+      {/* ── Mensajes (scroll) ─────────────────────────────────────────────── */}
+      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-4 py-4 min-h-0">
         <div className="max-w-lg mx-auto space-y-4">
           {isEmpty && !sending && (
             <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
@@ -419,14 +429,14 @@ export function AdvisorPage() {
               className={cn(
                 "w-full resize-none rounded-2xl border border-border/60 bg-card px-4 py-2.5",
                 "text-sm placeholder:text-muted-foreground focus:outline-none focus:border-primary/60",
-                "max-h-32 min-h-[2.5rem] leading-relaxed disabled:opacity-50",
+                "max-h-56 min-h-[2.5rem] leading-relaxed disabled:opacity-50",
                 recording && "border-red-500/50 bg-red-500/5",
               )}
               style={{ height: "auto" }}
               onInput={(e) => {
                 const t = e.currentTarget;
                 t.style.height = "auto";
-                t.style.height = `${Math.min(t.scrollHeight, 128)}px`;
+                t.style.height = `${Math.min(t.scrollHeight, 224)}px`;
               }}
             />
           </div>

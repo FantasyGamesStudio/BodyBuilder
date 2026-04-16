@@ -50,7 +50,7 @@ export interface DayProgress {
   proteinPct: number;
   fatPct: number;
   carbsPct: number;
-  /** Verde si kcal está dentro de la horquilla del objetivo */
+  /** green = en objetivo · yellow = cerca del rango · red = fuera de rango */
   kcalStatus: "green" | "yellow" | "red";
 }
 

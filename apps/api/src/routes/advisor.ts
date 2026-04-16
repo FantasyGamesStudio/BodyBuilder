@@ -68,28 +68,71 @@ const SLOT_ES: Record<string, string> = {
   other: "Otro",
 };
 
+const GOAL_MODE_ES: Record<string, string> = {
+  volumen_limpio: "Volumen limpio (superávit calórico, prioridad hipertrofia)",
+  mantenimiento: "Mantenimiento (peso estable)",
+  definicion: "Definición (déficit calórico, preservar músculo)",
+  recomposicion: "Recomposición (déficit leve + alta proteína)",
+  perdida_peso: "Pérdida de peso (déficit calórico)",
+};
+
+const GOAL_MODE_ADVICE: Record<string, string> = {
+  volumen_limpio:
+    "El superávit se reparte PRIORITARIAMENTE en carbohidratos (tras cubrir proteína y grasa mínima). " +
+    "En días de entreno: más carbos para rendimiento y recuperación. " +
+    "Cuando el usuario pregunte cuánto comer, dale GRAMOS CONCRETOS de cada alimento basándote en los macros restantes, " +
+    "redondeando a porciones prácticas (ej. 150g de arroz cocido, no 147g). " +
+    "Si hoy entrena, sugiere que la comida pre-entreno sea rica en carbos de absorción media y la post-entreno incluya proteína + carbos.",
+  mantenimiento:
+    "Mantener peso estable con banda estrecha. " +
+    "Cuando el usuario pregunte cuánto comer, dale GRAMOS CONCRETOS basándote en los macros restantes, " +
+    "redondeando a porciones prácticas (ej. 150g de pechuga, no 147g).",
+  definicion:
+    "El déficit NO se compensa con el movimiento (no 'comer de vuelta' el entreno). " +
+    "Prioridad: proteína al objetivo, grasa al mínimo saludable, el resto carbos. " +
+    "Cuando el usuario pregunte cuánto comer, dale GRAMOS CONCRETOS basándote en los macros restantes, " +
+    "redondeando a porciones prácticas. " +
+    "Sugiere alimentos con alto volumen/saciedad por pocas kcal (verduras, proteínas magras).",
+  recomposicion:
+    "Similar a déficit leve con proteína alta. " +
+    "Cuando el usuario pregunte cuánto comer, dale GRAMOS CONCRETOS basándote en los macros restantes, " +
+    "redondeando a porciones prácticas. " +
+    "El entreno de fuerza es clave; sugiere proteína + carbos moderados alrededor del entreno.",
+  perdida_peso:
+    "El déficit NO se compensa con el movimiento. " +
+    "Cuando el usuario pregunte cuánto comer, dale GRAMOS CONCRETOS basándote en los macros restantes, " +
+    "redondeando a porciones prácticas. " +
+    "Sugiere alimentos con alto volumen/saciedad por pocas kcal.",
+};
+
+const ACTIVITY_ES: Record<string, string> = {
+  sedentary: "Sedentario",
+  lightly_active: "Ligeramente activo",
+  moderately_active: "Moderadamente activo",
+  very_active: "Muy activo",
+  extra_active: "Extra activo",
+};
+
 /** Construye el system prompt con el contexto nutricional del día. */
 async function buildSystemPrompt(userId: string, date: string): Promise<string> {
-  // Perfil y objetivo activo
-  const [profile, target] = await Promise.all([
+  const [profile, target, onboarding] = await Promise.all([
     db.query.userProfiles.findFirst({ where: eq(schema.userProfiles.userId, userId) }),
     db.query.nutritionTargetSets.findFirst({
       where: and(eq(schema.nutritionTargetSets.userId, userId), eq(schema.nutritionTargetSets.isActive, true)),
     }),
+    db.query.userOnboardings.findFirst({
+      where: eq(schema.userOnboardings.userId, userId),
+      orderBy: (o, { desc: d }) => [d(o.createdAt)],
+    }),
   ]);
 
-  // Progreso del día actual
   const todayEntries = await db.query.mealLogEntries.findMany({
     where: and(eq(schema.mealLogEntries.userId, userId), eq(schema.mealLogEntries.nutritionDate, date)),
-  });
-  const todayWorkouts = await db.query.workoutLogs.findMany({
-    where: and(eq(schema.workoutLogs.userId, userId), eq(schema.workoutLogs.workoutDate, date)),
+    with: { food: true },
   });
 
-  // Necesitamos los nombres de los alimentos para mostrar al LLM qué ya está registrado
-  const todayEntriesWithFood = await db.query.mealLogEntries.findMany({
-    where: and(eq(schema.mealLogEntries.userId, userId), eq(schema.mealLogEntries.nutritionDate, date)),
-    with: { food: true },
+  const todayWorkouts = await db.query.workoutLogs.findMany({
+    where: and(eq(schema.workoutLogs.userId, userId), eq(schema.workoutLogs.workoutDate, date)),
   });
 
   const consumed = todayEntries.reduce(
@@ -101,11 +144,16 @@ async function buildSystemPrompt(userId: string, date: string): Promise<string> 
     }),
     { kcal: 0, proteinG: 0, fatG: 0, carbsG: 0 },
   );
-  const eatKcal = todayWorkouts.reduce((s, w) => s + w.kcalBurned, 0);
+  const doneWorkouts = todayWorkouts.filter((w) => w.status === "done" || !w.status);
+  const plannedWorkouts = todayWorkouts.filter((w) => w.status === "planned");
+  const eatKcal = doneWorkouts.reduce((s, w) => s + w.kcalBurned, 0);
   const kcalTarget = (target?.kcalTarget ?? 2000) + eatKcal;
-  const remaining = kcalTarget - consumed.kcal;
+  const remainingKcal = kcalTarget - consumed.kcal;
+  const remainingProtein = (target?.proteinMinG ?? 0) - consumed.proteinG;
+  const remainingCarbs = (target?.carbsG ?? 0) - consumed.carbsG;
+  const remainingFatMin = (target?.fatMinG ?? 0) - consumed.fatG;
+  const remainingFatMax = (target?.fatMaxG ?? 0) - consumed.fatG;
 
-  // Últimos 3 días para contexto histórico
   const threeDaysAgo = new Date(date + "T00:00:00");
   threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
   const pastEntries = await db.query.mealLogEntries.findMany({
@@ -116,7 +164,6 @@ async function buildSystemPrompt(userId: string, date: string): Promise<string> 
     orderBy: [desc(schema.mealLogEntries.nutritionDate)],
   });
 
-  // Agrupar por día
   const byDay: Record<string, { kcal: number; proteinG: number; fatG: number; carbsG: number }> = {};
   for (const e of pastEntries) {
     if (e.nutritionDate === date) continue;
@@ -135,28 +182,50 @@ async function buildSystemPrompt(userId: string, date: string): Promise<string> 
     .join("\n") || "  Sin datos anteriores";
 
   const nickname = profile?.nickname ?? "Usuario";
-  const goalMode = target ? `Objetivo: ${target.kcalTarget} kcal` : "Sin objetivo configurado";
+  const goalMode = onboarding?.goalMode ?? "";
+  const goalModeLabel = GOAL_MODE_ES[goalMode] ?? goalMode;
+  const goalAdvice = GOAL_MODE_ADVICE[goalMode] ?? "";
+  const activityLevel = onboarding ? (ACTIVITY_ES[onboarding.activityLevel] ?? onboarding.activityLevel) : "?";
+  const isTrainingDay = doneWorkouts.length > 0 || plannedWorkouts.length > 0;
+  const doneWorkoutNotes = doneWorkouts.map((w) => w.notes).filter(Boolean).join("; ");
+  const plannedWorkoutInfo = plannedWorkouts.map((w) => {
+    const time = w.plannedAt ? ` a las ${w.plannedAt}` : "";
+    const note = w.notes ? ` (${w.notes})` : "";
+    return `planificado${time}${note}`;
+  }).join("; ");
 
   const SLOT_NAMES: Record<string, string> = {
     breakfast: "Desayuno", lunch: "Comida", dinner: "Cena", snack: "Snack", other: "Otro",
   };
-  const registeredList = todayEntriesWithFood.length > 0
-    ? todayEntriesWithFood
-        .map((e) => `  - ${SLOT_NAMES[e.mealSlot] ?? e.mealSlot}: ${e.food?.name ?? "Alimento"} (${e.kcal} kcal)`)
+  const registeredList = todayEntries.length > 0
+    ? todayEntries
+        .map((e) => `  - ${SLOT_NAMES[e.mealSlot] ?? e.mealSlot}: ${e.food?.name ?? e.foodName ?? "Alimento"} (${e.kcal} kcal, P:${Number(e.proteinG).toFixed(0)}g C:${Number(e.carbsG).toFixed(0)}g G:${Number(e.fatG).toFixed(0)}g)`)
         .join("\n")
     : "  Ninguna entrada registrada aún.";
 
+  const weightInfo = onboarding ? `Peso: ${onboarding.weightKg}kg | Altura: ${onboarding.heightCm}cm | Edad: ${onboarding.ageYears}` : "";
+  const neatInfo = onboarding?.neatFloorSteps ? `Objetivo NEAT (pasos): ${onboarding.neatFloorSteps}/día` : "";
+
   return `Eres el asesor nutricional personal de ${nickname} para hoy, ${date}.
 Eres directo, amigable y práctico. Responde siempre en español.
+Tu trabajo NO es solo registrar comidas: también asesora ACTIVAMENTE con cantidades concretas y criterio firme.
 
-OBJETIVO DIARIO:
-  ${goalMode}
+PERFIL:
+  ${weightInfo}
+  Nivel de actividad: ${activityLevel}
+  ${neatInfo}
+
+OBJETIVO: ${goalModeLabel}
+  Calorías diana: ${kcalTarget} kcal${eatKcal > 0 ? ` (base ${target?.kcalTarget ?? "?"} + ${eatKcal} kcal entreno)` : ""}
   Proteína mín: ${target?.proteinMinG ?? "?"}g | Carbos: ${target?.carbsG ?? "?"}g | Grasas: ${target?.fatMinG ?? "?"}–${target?.fatMaxG ?? "?"}g
-  ${eatKcal > 0 ? `Entrenamiento del día: +${eatKcal} kcal (target ajustado: ${kcalTarget} kcal)` : ""}
+  ${doneWorkouts.length > 0 ? `ENTRENO YA REALIZADO${doneWorkoutNotes ? `: ${doneWorkoutNotes}` : ""}` : ""}
+  ${plannedWorkouts.length > 0 ? `ENTRENO PLANIFICADO: ${plannedWorkoutInfo} — usa esta información para aconsejar qué y cuándo comer ANTES y DESPUÉS del entreno` : ""}
+  ${!isTrainingDay ? "Hoy es día de descanso" : ""}
+  ${goalAdvice}
 
 PROGRESO HOY (${date}):
   Consumido: ${consumed.kcal} kcal | P:${consumed.proteinG.toFixed(0)}g G:${consumed.fatG.toFixed(0)}g C:${consumed.carbsG.toFixed(0)}g
-  Restante: ${remaining} kcal
+  Restante: ${remainingKcal} kcal | P:${Math.max(0, remainingProtein).toFixed(0)}g C:${Math.max(0, remainingCarbs).toFixed(0)}g G:${Math.max(0, remainingFatMin).toFixed(0)}–${Math.max(0, remainingFatMax).toFixed(0)}g
 
 ENTRADAS YA REGISTRADAS HOY (NO las vuelvas a añadir aunque el usuario las mencione de nuevo):
 ${registeredList}
@@ -166,22 +235,32 @@ ${historySummary}
 
 INSTRUCCIONES:
 - Cuando el usuario describa O MUESTRE (en imágenes) comidas, usa add_meal_entries() inmediatamente.
-- Con imágenes: identifica TODOS los alimentos visibles y regístralos aunque el sistema indique que ya existen entradas similares. El usuario puede estar comiendo lo mismo en diferentes momentos del día.
+- Con imágenes: identifica TODOS los alimentos visibles y regístralos aunque el sistema indique que ya existen entradas similares.
 - REGLA DE AGRUPADO: crea UNA entrada por alimento/plato diferente que se come por separado.
   - Si varios ingredientes se mezclan en una sola preparación (un batido, un café con leche, unas tostadas con mantequilla), es UNA entrada con los macros sumados.
   - Solo desglosa si los alimentos se toman por separado (ej. un bocadillo Y una fruta = 2 entradas).
-  - Ejemplos correctos:
-    · "leche con colacao y proteína" → 1 entrada: "Batido de leche con colacao y proteína"
-    · "café con leche" → 1 entrada: "Café con leche"
-    · "tostadas con aceite y tomate" → 1 entrada: "Tostadas con aceite y tomate"
-    · "pitufo de jamón y un café" → 2 entradas: pitufo de jamón + café
 - Estima porciones estándar si no se especifican.
 - Usa el mealSlot correcto según el contexto (hora del día o lo que diga el usuario).
-- Si ves patrones problemáticos en el historial (exceso de grasa, déficit de proteína...), coméntalo brevemente.
-- Si el usuario pide sugerencias, propón opciones que cuadren con los macros restantes.
-- Sé breve: 2-3 frases máximo salvo que te pidan más detalle.
+
+ASESORAMIENTO PROACTIVO (MUY IMPORTANTE):
+- Cuando el usuario pregunte "¿cuánto como?", "¿qué me echo?", "¿cuánto arroz?" o similar, NUNCA le des rangos vagos.
+- Calcula los macros restantes y dale GRAMOS CONCRETOS de cada alimento, redondeando a porciones prácticas (ej. "150g de arroz cocido", "200g de pechuga de pollo", "15g de aceite de oliva").
+- Desglosa: "Para llegar a tu objetivo te faltan ~${remainingKcal} kcal. Te propongo: Xg de [alimento] (Y kcal, Pg Cg Gg) + Zg de [alimento] (...)"
+- Si hoy es día de entreno y aún no ha comido la comida principal, sugiere más carbohidratos para rendimiento.
+- Si es volumen y lleva poco consumo, adviértelo y sugiere comer más, especialmente carbos.
+- Si es déficit y ya está cerca del techo, recomiende alimentos bajos en grasa y con buena saciedad.
+- Si el usuario nombra un alimento concreto (ej. "pollo con arroz"), calcula los gramos exactos de CADA componente para cubrir los macros restantes, no le digas "entre 100 y 200g".
+- Considera la hora: si entrena por la tarde, la comida del mediodía debe tener carbos suficientes; si ya entrenó, la cena debe recuperar.
+- Cuando el usuario te diga que se echó una cantidad DISTINTA a la que le sugeriste, NO le digas simplemente "vale, perfecto". Evalúa si esa cantidad encaja con su objetivo del día. Si se pasa, adviértelo amablemente y sugiere compensar en la siguiente comida. Si se queda corto, sugiere añadir algo para llegar al objetivo.
+- Revisa el historial de los últimos 3 días ANTES de aconsejar. Si ha tenido días altos en grasa, sugiere opciones más magras hoy. Si ha tenido días bajos en calorías, sugiere que hoy puede comer un poco más sin culpa.
+- Si el usuario lleva varios días con un patrón (ej. siempre le falta proteína en el desayuno), menciónalo proactivamente.
+- Sé firme con las recomendaciones: si el objetivo de grasa es 60-70g y ya lleva 65g, no le digas "puedes añadir un poco más de aceite". Dile "ya estás en el límite de grasa, mejor evita añadir más".
+
+ESTILO:
+- Sé breve: 2-3 frases para confirmaciones, más detallado solo cuando asesores con gramos concretos.
 - No repitas los valores numéricos que ya has registrado, solo confirma lo añadido con el nombre.
-- La lista de "ENTRADAS YA REGISTRADAS" es solo orientativa para evitar duplicados obvios; si el usuario muestra imágenes nuevas, SIEMPRE registra lo que se ve.`;
+- La lista de "ENTRADAS YA REGISTRADAS" es solo orientativa para evitar duplicados obvios; si el usuario muestra imágenes nuevas, SIEMPRE registra lo que se ve.
+- Usa formato markdown en tus respuestas: **negrita** para énfasis, - para listas.`;
 }
 
 // ─── Plugin ──────────────────────────────────────────────────────────────────
@@ -230,7 +309,14 @@ export const advisorRoutes: FastifyPluginAsync = async (app) => {
       orderBy: (m, { asc }) => [asc(m.createdAt)],
     });
 
-    return reply.send({ messages });
+    return reply.send({
+      messages: messages.map((m) => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        createdAt: m.createdAt.toISOString(),
+      })),
+    });
   });
 
   /**

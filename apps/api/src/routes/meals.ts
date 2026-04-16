@@ -299,13 +299,23 @@ export const mealsRoutes: FastifyPluginAsync = async (app) => {
       bySlot[slot]?.push(e);
     }
 
-    // Progreso contra target activo — el EAT se suma al target del día
+    // Progreso contra target activo
+    // El EAT solo se suma al target en objetivos donde el ejercicio amplía la ventana calórica
+    // (mantenimiento, definición, recomposición, pérdida de peso).
+    // En volumen limpio el target ya incluye un superávit planificado y no debe crecer más.
     const target = await db.query.nutritionTargetSets.findFirst({
       where: and(
         eq(schema.nutritionTargetSets.userId, userId),
         eq(schema.nutritionTargetSets.isActive, true),
       ),
+      with: { sourceOnboarding: { columns: { goalMode: true } } },
     });
+
+    const goalMode = target?.sourceOnboarding?.goalMode ?? null;
+    const eatCountsTowardTarget = goalMode !== "volumen_limpio";
+    const kcalTargetForProgress = target
+      ? target.kcalTarget + (eatCountsTowardTarget ? eatKcal : 0)
+      : 0;
 
     const progress = target
       ? computeDayProgress(
@@ -316,7 +326,7 @@ export const mealsRoutes: FastifyPluginAsync = async (app) => {
             carbsG: e.carbsG,
           })),
           {
-            kcalTarget: target.kcalTarget + eatKcal,
+            kcalTarget: kcalTargetForProgress,
             proteinMinG: target.proteinMinG,
             fatMinG: target.fatMinG,
             fatMaxG: target.fatMaxG,
@@ -332,8 +342,111 @@ export const mealsRoutes: FastifyPluginAsync = async (app) => {
       bySlot,
       workouts: serializedWorkouts,
       eatKcal,
+      goalMode,
       progress,
     });
+  });
+
+  /**
+   * GET /v1/meals/month/:yearMonth
+   *
+   * Devuelve el resumen nutricional de todos los días de un mes (YYYY-MM).
+   */
+  app.get("/v1/meals/month/:yearMonth", {
+    schema: {
+      tags: ["meals"],
+      summary: "Resumen nutricional mensual",
+      security: [{ bearerAuth: [] }],
+      params: {
+        type: "object",
+        required: ["yearMonth"],
+        properties: { yearMonth: { type: "string" } },
+      },
+    },
+    preHandler: app.authenticate,
+  }, async (req, reply) => {
+    const { yearMonth } = req.params as { yearMonth: string };
+    if (!/^\d{4}-\d{2}$/.test(yearMonth)) {
+      return reply.status(400).send({ error: "invalid_format" });
+    }
+
+    const [year, month] = yearMonth.split("-").map(Number);
+    const firstDay = `${yearMonth}-01`;
+    const lastDayDate = new Date(year, month, 0);
+    const lastDay = lastDayDate.toLocaleDateString("sv-SE");
+
+    const dates: string[] = [];
+    for (let d = 1; d <= lastDayDate.getDate(); d++) {
+      dates.push(`${yearMonth}-${String(d).padStart(2, "0")}`);
+    }
+
+    const userId = req.user.sub;
+
+    const [allEntries, allWorkouts, target] = await Promise.all([
+      db.query.mealLogEntries.findMany({
+        where: and(
+          eq(schema.mealLogEntries.userId, userId),
+          gte(schema.mealLogEntries.nutritionDate, firstDay),
+          lte(schema.mealLogEntries.nutritionDate, lastDay),
+        ),
+        columns: { id: true, nutritionDate: true, kcal: true, proteinG: true, fatG: true, carbsG: true },
+      }),
+      db.query.workoutLogs.findMany({
+        where: and(
+          eq(schema.workoutLogs.userId, userId),
+          gte(schema.workoutLogs.workoutDate, firstDay),
+          lte(schema.workoutLogs.workoutDate, lastDay),
+        ),
+        columns: { id: true, workoutDate: true, kcalBurned: true },
+      }),
+      db.query.nutritionTargetSets.findFirst({
+        where: and(
+          eq(schema.nutritionTargetSets.userId, userId),
+          eq(schema.nutritionTargetSets.isActive, true),
+        ),
+      }),
+    ]);
+
+    const entriesByDate = new Map<string, typeof allEntries>(dates.map((d) => [d, []]));
+    const workoutsByDate = new Map<string, typeof allWorkouts>(dates.map((d) => [d, []]));
+    for (const e of allEntries) entriesByDate.get(e.nutritionDate)?.push(e);
+    for (const w of allWorkouts) workoutsByDate.get(w.workoutDate)?.push(w);
+
+    const days = dates.map((date) => {
+      const dayEntries = entriesByDate.get(date) ?? [];
+      const dayWorkouts = workoutsByDate.get(date) ?? [];
+      const eatKcal = dayWorkouts.reduce((s, w) => s + w.kcalBurned, 0);
+      const hasData = dayEntries.length > 0;
+
+      const progress = (target && hasData)
+        ? computeDayProgress(
+            dayEntries.map((e) => ({
+              kcal: e.kcal,
+              proteinG: Number(e.proteinG),
+              fatG: Number(e.fatG),
+              carbsG: Number(e.carbsG),
+            })),
+            {
+              kcalTarget: target.kcalTarget + eatKcal,
+              proteinMinG: target.proteinMinG,
+              fatMinG: target.fatMinG,
+              fatMaxG: target.fatMaxG,
+              carbsG: target.carbsG,
+              kcalGreenPct: target.kcalGreenPct,
+            },
+          )
+        : null;
+
+      return {
+        date,
+        hasData,
+        kcalConsumed: progress?.totals.kcal ?? 0,
+        kcalTarget: target ? target.kcalTarget + eatKcal : 0,
+        status: (progress?.kcalStatus ?? null) as "green" | "yellow" | "red" | null,
+      };
+    });
+
+    return reply.send({ yearMonth, days });
   });
 
   /**
@@ -402,6 +515,7 @@ export const mealsRoutes: FastifyPluginAsync = async (app) => {
           eq(schema.nutritionTargetSets.userId, userId),
           eq(schema.nutritionTargetSets.isActive, true),
         ),
+        with: { sourceOnboarding: { columns: { goalMode: true } } },
       }),
     ]);
 
@@ -412,12 +526,18 @@ export const mealsRoutes: FastifyPluginAsync = async (app) => {
     for (const e of allEntries) entriesByDate.get(e.nutritionDate)?.push(e);
     for (const w of allWorkouts) workoutsByDate.get(w.workoutDate)?.push(w);
 
+    const weekGoalMode = target?.sourceOnboarding?.goalMode ?? null;
+    const weekEatCounts = weekGoalMode !== "volumen_limpio";
+
     // Resumen por día
     const days = dates.map((date) => {
       const dayEntries = (entriesByDate.get(date) ?? []).map(serializeEntry);
       const dayWorkouts = workoutsByDate.get(date) ?? [];
       const eatKcal = dayWorkouts.reduce((s, w) => s + w.kcalBurned, 0);
       const hasData = dayEntries.length > 0 || dayWorkouts.length > 0;
+      const kcalTargetForDay = target
+        ? target.kcalTarget + (weekEatCounts ? eatKcal : 0)
+        : 0;
 
       const progress = target
         ? computeDayProgress(
@@ -428,7 +548,7 @@ export const mealsRoutes: FastifyPluginAsync = async (app) => {
               carbsG: e.carbsG,
             })),
             {
-              kcalTarget: target.kcalTarget + eatKcal,
+              kcalTarget: kcalTargetForDay,
               proteinMinG: target.proteinMinG,
               fatMinG: target.fatMinG,
               fatMaxG: target.fatMaxG,
@@ -438,7 +558,7 @@ export const mealsRoutes: FastifyPluginAsync = async (app) => {
           )
         : null;
 
-      return { date, hasData, eatKcal, kcalTarget: target ? target.kcalTarget + eatKcal : 0, progress };
+      return { date, hasData, eatKcal, kcalTarget: kcalTargetForDay, progress };
     });
 
     // Totales de la semana

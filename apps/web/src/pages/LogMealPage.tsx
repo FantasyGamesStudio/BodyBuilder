@@ -231,7 +231,7 @@ export function LogMealPage() {
   const total = entries.reduce((s, e) => s + e.kcal, 0);
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-[calc(100dvh-3.5rem)] md:h-full">
       {/* Header */}
       <div className="flex items-center gap-3 px-4 pt-6 pb-4 border-b border-border shrink-0">
         <button
