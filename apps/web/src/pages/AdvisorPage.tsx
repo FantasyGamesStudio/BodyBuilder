@@ -326,7 +326,7 @@ export function AdvisorPage() {
   const isEmpty = entries.length === 0;
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-[calc(100dvh-3.5rem)] md:h-full">
       {/* ── Cabecera ──────────────────────────────────────────────────────── */}
       <div className="px-4 pt-5 pb-3 border-b border-border/40 shrink-0">
         <div className="flex items-center gap-3 max-w-lg mx-auto">
