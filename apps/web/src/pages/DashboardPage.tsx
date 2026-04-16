@@ -333,21 +333,36 @@ function WorkoutForm({ date, onSave }: { date: string; onSave: (w: WorkoutLog) =
 
   if (!open) {
     return (
-      <div className="flex items-center gap-2">
+      <div className="grid grid-cols-2 gap-2">
         <button
           onClick={() => { setMode("plan"); setOpen(true); }}
-          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors"
+          className={cn(
+            "flex items-center gap-2.5 rounded-xl border px-3 py-2.5 transition-all text-left",
+            "border-violet-500/25 bg-violet-500/5 hover:bg-violet-500/10 hover:border-violet-500/40",
+          )}
         >
-          <Dumbbell className="h-3.5 w-3.5" />
-          Planificar entreno
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-500/15">
+            <Dumbbell className="h-4 w-4 text-violet-400" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs font-semibold text-violet-300 leading-none">Planificar</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight">Avisa al asesor</p>
+          </div>
         </button>
-        <span className="text-muted-foreground/30 text-xs">·</span>
         <button
           onClick={() => { setMode("done"); setOpen(true); }}
-          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors"
+          className={cn(
+            "flex items-center gap-2.5 rounded-xl border px-3 py-2.5 transition-all text-left",
+            "border-green-500/25 bg-green-500/5 hover:bg-green-500/10 hover:border-green-500/40",
+          )}
         >
-          <Plus className="h-3.5 w-3.5" />
-          Registrar ya hecho
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-green-500/15">
+            <Plus className="h-4 w-4 text-green-400" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs font-semibold text-green-300 leading-none">Ya lo hice</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight">Registrar kcal</p>
+          </div>
         </button>
       </div>
     );
