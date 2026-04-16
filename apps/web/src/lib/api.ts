@@ -222,24 +222,14 @@ export interface MealCorrection {
 export interface MealDetail extends MealEntry {
   media: MealMedia[];
   corrections: MealCorrection[];
-}
-
-export interface MealMedia {
-  id: string;
-  type: "image" | "audio";
-  objectKey: string;
-  mime: string;
-}
-
-export interface MealCorrection {
-  id: string;
-  userExplanationText: string | null;
-  createdAt: string;
-}
-
-export interface MealDetail extends MealEntry {
-  media: MealMedia[];
-  corrections: MealCorrection[];
+  aiEstimate?: {
+    foodName?: string;
+    kcal?: number;
+    proteinG?: number;
+    fatG?: number;
+    carbsG?: number;
+    reasoning?: string;
+  } | null;
 }
 
 export interface DayProgress {

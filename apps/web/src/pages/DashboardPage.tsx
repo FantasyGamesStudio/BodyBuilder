@@ -231,32 +231,52 @@ function MealSlotsBlock({
     <Card className="overflow-hidden divide-y divide-border/50">
       {slots.map((slot) => {
         const entries = bySlot[slot] ?? [];
-        const consumed = entries.reduce((s, e) => s + e.kcal, 0);
+        const confirmedEntries = entries.filter((e) => !e.status || e.status === "confirmed" || e.status === "corrected");
+        const pendingReview = entries.filter((e) => e.status === "pending_user_review");
+        const processing = entries.filter((e) => e.status === "ai_processing");
+        const consumed = confirmedEntries.reduce((s, e) => s + e.kcal, 0);
         const slotTarget = kcalTarget > 0 ? Math.round(kcalTarget * (SLOT_KCAL_PCT[slot] ?? 0.1)) : 0;
         const color = SLOT_COLORS[slot] ?? "#6b7280";
         const label = SLOT_LABELS[slot] ?? slot;
 
         return (
-          <Link
-            key={slot}
-            to={`/log?date=${date}&slot=${slot}`}
-            className="flex items-center gap-3 px-4 py-3 hover:bg-white/3 transition-colors"
-          >
-            <SlotArc consumed={consumed} target={slotTarget} color={color} />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold leading-none">{label}</p>
-              <p className="mt-1 text-xs text-muted-foreground tabular-nums">
-                {consumed > 0 ? (
-                  <><span style={{ color }}>{consumed}</span>{slotTarget > 0 ? ` / ${slotTarget}` : ""} kcal</>
-                ) : (
-                  <span>{slotTarget > 0 ? `0 / ${slotTarget} kcal` : "Sin registros"}</span>
-                )}
-              </p>
-            </div>
-            <div className="shrink-0 flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm shadow-primary/30 hover:bg-primary/90 transition-colors">
+          <div key={slot} className="flex items-center gap-3 px-4 py-3">
+            <Link to={`/log/h2?date=${date}&slot=${slot}`} className="flex items-center gap-3 flex-1 min-w-0 hover:opacity-80 transition-opacity">
+              <SlotArc consumed={consumed} target={slotTarget} color={color} />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold leading-none">{label}</p>
+                <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                  <p className="text-xs text-muted-foreground tabular-nums">
+                    {consumed > 0 ? (
+                      <><span style={{ color }}>{consumed}</span>{slotTarget > 0 ? ` / ${slotTarget}` : ""} kcal</>
+                    ) : (
+                      <span>{slotTarget > 0 ? `0 / ${slotTarget} kcal` : "Sin registros"}</span>
+                    )}
+                  </p>
+                  {processing.length > 0 && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/15 text-blue-400 font-medium">
+                      IA procesando…
+                    </span>
+                  )}
+                  {pendingReview.length > 0 && (
+                    <Link
+                      to={`/log/h2?date=${date}&slot=${slot}&reviewId=${pendingReview[0].id}`}
+                      className="text-[10px] px-1.5 py-0.5 rounded-full bg-yellow-500/15 text-yellow-400 font-medium hover:bg-yellow-500/25 transition-colors"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      Revisar estimación →
+                    </Link>
+                  )}
+                </div>
+              </div>
+            </Link>
+            <Link
+              to={`/log/h2?date=${date}&slot=${slot}`}
+              className="shrink-0 flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm shadow-primary/30 hover:bg-primary/90 transition-colors"
+            >
               <Plus className="h-4 w-4" />
-            </div>
-          </Link>
+            </Link>
+          </div>
         );
       })}
     </Card>
