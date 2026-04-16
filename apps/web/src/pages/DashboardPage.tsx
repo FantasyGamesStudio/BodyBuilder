@@ -445,6 +445,11 @@ const SLOT_ES_ADVISOR: Record<string, string> = {
 
 type PendingImage = { base64: string; mimeType: string; preview: string };
 
+type ChatEntry = {
+  message: AdvisorMessage;
+  addedEntries?: AdvisorAddedEntry[];
+};
+
 function AdvisorInline({
   date,
   onEntriesAdded,
@@ -459,8 +464,9 @@ function AdvisorInline({
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
-  const [lastReply, setLastReply] = useState<{ message: AdvisorMessage; entries: AdvisorAddedEntry[] } | null>(null);
+  const [chatEntries, setChatEntries] = useState<ChatEntry[]>([]);
   const [markedIds, setMarkedIds] = useState<Set<string>>(new Set());
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const cancelRecordingRef = useRef(false);
@@ -468,23 +474,60 @@ function AdvisorInline({
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Cargar historial al montar o cambiar de día
+  useEffect(() => {
+    advisorApi.history(date)
+      .then((res) => setChatEntries(res.messages.map((m) => ({ message: m }))))
+      .catch((err) => console.error("Error cargando historial del asesor:", err));
+  }, [date]);
+
+  // Auto-scroll al fondo cuando llegan mensajes nuevos
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatEntries, sending]);
+
   async function send(opts: { text?: string; images?: PendingImage[] }) {
     if (sending) return;
     setSending(true);
-    setLastReply(null);
+
+    const displayText = opts.text || (opts.images && opts.images.length > 0 ? "📷 Foto enviada" : "");
+    const tempUserMsg: AdvisorMessage = {
+      id: `tmp-${Date.now()}`,
+      role: "user",
+      content: displayText,
+      createdAt: new Date().toISOString(),
+    };
+    setChatEntries((prev) => [...prev, { message: tempUserMsg }]);
+    setText("");
+    setPendingImages([]);
+
     try {
       const apiImages = (opts.images ?? []).map((img) => ({ imageBase64: img.base64, mimeType: img.mimeType }));
       const res = await advisorApi.message(date, {
         text: opts.text,
         images: apiImages.length > 0 ? apiImages : undefined,
       });
-      setLastReply({ message: { id: Date.now().toString(), role: "assistant", content: res.reply, createdAt: new Date().toISOString() }, entries: res.addedEntries });
-      // Siempre refrescamos el día: puede haber entradas pre-existentes o recién añadidas
+
+      const assistantMsg: AdvisorMessage = {
+        id: `assistant-${Date.now()}`,
+        role: "assistant",
+        content: res.reply,
+        createdAt: new Date().toISOString(),
+      };
+
+      setChatEntries((prev) => [
+        ...prev.slice(0, -1),
+        { message: { ...tempUserMsg, content: res.transcription ?? displayText } },
+        { message: assistantMsg, addedEntries: res.addedEntries },
+      ]);
+
       setTimeout(() => onEntriesAdded(), 300);
-      setText("");
-      setPendingImages([]);
     } catch {
-      setLastReply({ message: { id: Date.now().toString(), role: "assistant", content: "Ha ocurrido un error. Inténtalo de nuevo.", createdAt: "" }, entries: [] });
+      setChatEntries((prev) => [
+        ...prev.slice(0, -1),
+        { message: tempUserMsg },
+        { message: { id: `err-${Date.now()}`, role: "assistant", content: "Ha ocurrido un error. Inténtalo de nuevo.", createdAt: "" } },
+      ]);
     } finally {
       setSending(false);
     }
@@ -585,34 +628,61 @@ function AdvisorInline({
   return (
     <div className="space-y-3">
 
-      {/* Respuesta del asesor */}
-      {lastReply && (
-        <div className="space-y-2">
-          <div className="rounded-2xl rounded-tl-sm bg-card border border-border/60 px-4 py-3 text-sm leading-relaxed">
-            {lastReply.message.content}
-          </div>
-          {lastReply.entries.length > 0 && (
-            <div className="space-y-1.5">
-              {lastReply.entries.map((entry) => (
-                <div key={entry.id} className="flex items-center justify-between bg-green-500/8 border border-green-500/20 rounded-xl px-3 py-2">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-medium text-green-400 truncate">{entry.name}</p>
-                    <p className="text-[11px] text-muted-foreground">
-                      {SLOT_ES_ADVISOR[entry.mealSlot] ?? entry.mealSlot} · {entry.kcal} kcal · P:{entry.proteinG.toFixed(0)}g C:{entry.carbsG.toFixed(0)}g G:{entry.fatG.toFixed(0)}g
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => handleMarkRecurring(entry)}
-                    title="Guardar como recurrente"
-                    className={cn("ml-2 shrink-0 p-1 transition-colors", markedIds.has(entry.id) ? "text-yellow-400" : "text-muted-foreground hover:text-yellow-400")}
-                  >
-                    <Star className={cn("h-3.5 w-3.5", markedIds.has(entry.id) && "fill-yellow-400")} />
-                  </button>
+      {/* Historial de conversación */}
+      {chatEntries.length > 0 && (
+        <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+          {chatEntries.map((entry) => {
+            const isUser = entry.message.role === "user";
+            return (
+              <div key={entry.message.id} className={cn("flex flex-col gap-1.5", isUser ? "items-end" : "items-start")}>
+                <div className={cn(
+                  "max-w-[90%] rounded-2xl px-4 py-3 text-sm leading-relaxed",
+                  isUser
+                    ? "bg-primary text-primary-foreground rounded-br-sm"
+                    : "bg-card border border-border/60 text-foreground rounded-bl-sm",
+                )}>
+                  {entry.message.content}
                 </div>
-              ))}
+                {entry.addedEntries && entry.addedEntries.length > 0 && (
+                  <div className="w-full max-w-sm space-y-1.5">
+                    {entry.addedEntries.map((e) => (
+                      <div key={e.id} className="flex items-center justify-between bg-green-500/8 border border-green-500/20 rounded-xl px-3 py-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-medium text-green-400 truncate">{e.name}</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            {SLOT_ES_ADVISOR[e.mealSlot] ?? e.mealSlot} · {e.kcal} kcal · P:{e.proteinG.toFixed(0)}g C:{e.carbsG.toFixed(0)}g G:{e.fatG.toFixed(0)}g
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => handleMarkRecurring(e)}
+                          title="Guardar como recurrente"
+                          className={cn("ml-2 shrink-0 p-1 transition-colors", markedIds.has(e.id) ? "text-yellow-400" : "text-muted-foreground hover:text-yellow-400")}
+                        >
+                          <Star className={cn("h-3.5 w-3.5", markedIds.has(e.id) && "fill-yellow-400")} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {sending && (
+            <div className="flex items-start">
+              <div className="bg-card border border-border/60 rounded-2xl rounded-bl-sm px-4 py-3">
+                <div className="flex gap-1 items-center h-4">
+                  {[0, 1, 2].map((i) => (
+                    <div key={i} className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: `${i * 150}ms` }} />
+                  ))}
+                </div>
+              </div>
             </div>
           )}
+          <div ref={messagesEndRef} />
         </div>
+      )}
+      {chatEntries.length === 0 && !sending && (
+        <p className="text-xs text-muted-foreground text-center py-2">Cuéntame qué has comido o pídeme consejo</p>
       )}
 
       {/* Input */}
