@@ -1,4 +1,4 @@
-import { Bot, Camera, ChevronLeft, ChevronRight, Dumbbell, Image, Mic, MicOff, Plus, Send, Star, Trash2, X } from "lucide-react";
+import { Bot, Camera, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Dumbbell, Image, Mic, MicOff, Plus, Send, Star, Trash2, X } from "lucide-react";
 import { compressImage } from "@/lib/image";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
@@ -476,6 +476,7 @@ function AdvisorInline({
   const [chatEntries, setChatEntries] = useState<ChatEntry[]>([]);
   const [markedIds, setMarkedIds] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const cancelRecordingRef = useRef(false);
@@ -490,9 +491,12 @@ function AdvisorInline({
       .catch((err) => console.error("Error cargando historial del asesor:", err));
   }, [date]);
 
-  // Auto-scroll al fondo cuando llegan mensajes nuevos
+  // Auto-scroll al fondo dentro del contenedor del chat (sin arrastrar la página)
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const container = messagesContainerRef.current;
+    if (container) {
+      container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+    }
   }, [chatEntries, sending]);
 
   async function send(opts: { text?: string; images?: PendingImage[] }) {
@@ -639,7 +643,7 @@ function AdvisorInline({
 
       {/* Historial de conversación */}
       {chatEntries.length > 0 && (
-        <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+        <div ref={messagesContainerRef} className="space-y-3 max-h-96 overflow-y-auto pr-1">
           {chatEntries.map((entry) => {
             const isUser = entry.message.role === "user";
             return (
@@ -1005,6 +1009,7 @@ function WeekDayRow({
 export function DashboardPage() {
   const [view, setView] = useState<"day" | "week">("day");
   const [date, setDate] = useState(todayISO);
+  const [advisorOpen, setAdvisorOpen] = useState(false);
   const [weekStart, setWeekStart] = useState(() => getMondayISO(todayISO()));
   const [data, setData] = useState<DayResponse | null>(null);
   const [target, setTarget] = useState<ActiveTarget | null>(null);
@@ -1247,24 +1252,45 @@ export function DashboardPage() {
 
           {/* ── SECCIÓN 2: Asesor ─────────────────────────────────────────── */}
           <section>
-            {/* Cabecera del asesor */}
-            <div className="flex items-center gap-3 mb-3">
+            {/* Cabecera con toggle */}
+            <button
+              onClick={() => setAdvisorOpen((o) => !o)}
+              className="w-full flex items-center gap-3 mb-3 group"
+            >
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-violet-700 shadow-md shadow-violet-500/25">
                 <Bot className="h-4 w-4 text-white" />
               </div>
-              <div className="flex-1 min-w-0">
+              <div className="flex-1 min-w-0 text-left">
                 <div className="flex items-center gap-2">
                   <h2 className="text-sm font-semibold leading-none">Asesor del día</h2>
                   <span className="h-1.5 w-1.5 rounded-full bg-green-400 animate-pulse shrink-0" />
                 </div>
-                <p className="mt-0.5 text-[11px] text-muted-foreground">Cuéntame qué has comido o pídeme consejo</p>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  {advisorOpen ? "Toca para cerrar" : "Cuéntame qué has comido o pídeme consejo"}
+                </p>
               </div>
-            </div>
+              <div className={cn(
+                "shrink-0 flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-all",
+                "group-hover:bg-white/5 group-hover:text-foreground",
+              )}>
+                {advisorOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              </div>
+            </button>
 
-            {/* Componente del asesor */}
-            <div className="rounded-2xl border border-violet-500/20 bg-violet-500/5 p-4">
-              <AdvisorInline date={date} onEntriesAdded={refreshDay} onRecurringChange={refreshRecurring} />
-            </div>
+            {/* Panel colapsable */}
+            {advisorOpen && (
+              <div className="rounded-2xl border border-violet-500/20 bg-violet-500/5 p-4 space-y-3">
+                <AdvisorInline date={date} onEntriesAdded={refreshDay} onRecurringChange={refreshRecurring} />
+                {/* Botón de cierre inferior */}
+                <button
+                  onClick={() => setAdvisorOpen(false)}
+                  className="w-full flex items-center justify-center gap-1.5 pt-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <ChevronUp className="h-3.5 w-3.5" />
+                  Cerrar asesor
+                </button>
+              </div>
+            )}
           </section>
 
           {/* ── SECCIÓN 3: Registros de comida ───────────────────────────── */}
