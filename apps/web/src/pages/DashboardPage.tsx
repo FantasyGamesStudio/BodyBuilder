@@ -1238,6 +1238,30 @@ export function DashboardPage() {
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-violet-700 shadow-md shadow-violet-500/25">
                 <Bot className="h-4 w-4 text-white" />
               </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-sm font-semibold leading-none">Asesor del día</h2>
+                  <span className="h-1.5 w-1.5 rounded-full bg-green-400 animate-pulse shrink-0" />
+                </div>
+                {target && (
+                  <div className="mt-1.5 flex items-center gap-2">
+                    <div className="flex-1 h-1.5 rounded-full bg-muted/50 overflow-hidden">
+                      <div
+                        className={cn(
+                          "h-full rounded-full transition-all duration-700",
+                          kcalStatus === "green" ? "bg-green-500" :
+                          kcalStatus === "yellow" ? "bg-yellow-500" : "bg-red-500",
+                        )}
+                        style={{ width: `${Math.min((consumed.kcal / effectiveKcalTarget) * 100, 100)}%` }}
+                      />
+                    </div>
+                    <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">
+                      {consumed.kcal}/{effectiveKcalTarget} kcal
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
 
             {/* Componente del asesor */}
             <div className="rounded-2xl border border-violet-500/20 bg-violet-500/5 p-4">
