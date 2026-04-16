@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { MarkdownText } from "@/components/ui/markdown-text";
-import { advisorApi, mealsApi, onboardingApi, workoutsApi, type ActiveTarget, type AdvisorAddedEntry, type AdvisorMessage, type DayResponse, type MealEntry, type RecurringFood, type WeekDaySummary, type WeekResponse, type WorkoutLog } from "@/lib/api";
+import { advisorApi, mealsApi, onboardingApi, workoutsApi, type ActiveTarget, type AdvisorAddedEntry, type AdvisorMessage, type DayResponse, type MealEntry, type MonthDaySummary, type MonthResponse, type RecurringFood, type WeekDaySummary, type WeekResponse, type WorkoutLog } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -763,6 +763,146 @@ function AdvisorInline({
   );
 }
 
+// ─── Vista mensual ────────────────────────────────────────────────────────────
+
+const MONTH_NAMES_ES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+const DAY_HEADERS = ["L","M","X","J","V","S","D"];
+
+function MonthlyView({
+  yearMonth,
+  onSelectDay,
+}: {
+  yearMonth: string;
+  onSelectDay: (date: string) => void;
+}) {
+  const [data, setData] = useState<MonthResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const today = todayISO();
+
+  useEffect(() => {
+    setLoading(true);
+    mealsApi.month(yearMonth)
+      .then(setData)
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
+  }, [yearMonth]);
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-24">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+      </div>
+    );
+  }
+
+  const [year, month] = yearMonth.split("-").map(Number);
+  // Día de la semana del primer día (0=dom…6=sáb → convertimos a lun=0)
+  const firstWeekday = (new Date(year, month - 1, 1).getDay() + 6) % 7;
+  const daysInMonth = new Date(year, month, 0).getDate();
+
+  const byDate = new Map<string, MonthDaySummary>();
+  for (const d of data?.days ?? []) byDate.set(d.date, d);
+
+  // Contar estadísticas del mes
+  const recorded = data?.days.filter((d) => d.hasData).length ?? 0;
+  const green = data?.days.filter((d) => d.status === "green").length ?? 0;
+  const yellow = data?.days.filter((d) => d.status === "yellow").length ?? 0;
+  const red = data?.days.filter((d) => d.status === "red").length ?? 0;
+  const past = data?.days.filter((d) => d.date <= today).length ?? 0;
+
+  // Construir grid: celdas vacías + días del mes
+  const cells: (number | null)[] = [
+    ...Array(firstWeekday).fill(null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ];
+  // Rellenar hasta múltiplo de 7
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  return (
+    <div className="max-w-lg mx-auto px-4 pt-5 space-y-5">
+
+      {/* Resumen del mes */}
+      <Card>
+        <CardContent className="pt-4 pb-4">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs text-muted-foreground">{recorded} de {past} días registrados</p>
+            <div className="flex items-center gap-2">
+              {green > 0 && <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/15 text-green-400 font-medium">{green} objetivo</span>}
+              {yellow > 0 && <span className="text-[10px] px-2 py-0.5 rounded-full bg-yellow-500/15 text-yellow-400 font-medium">{yellow} rango</span>}
+              {red > 0 && <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-500/15 text-red-400 font-medium">{red} lejos</span>}
+            </div>
+          </div>
+
+          {/* Cabeceras de días */}
+          <div className="grid grid-cols-7 mb-1">
+            {DAY_HEADERS.map((h) => (
+              <div key={h} className="text-center text-[10px] font-semibold text-muted-foreground/60 py-1">{h}</div>
+            ))}
+          </div>
+
+          {/* Celdas del calendario */}
+          <div className="grid grid-cols-7 gap-y-1">
+            {cells.map((day, i) => {
+              if (day === null) return <div key={`empty-${i}`} />;
+
+              const dateStr = `${yearMonth}-${String(day).padStart(2, "0")}`;
+              const summary = byDate.get(dateStr);
+              const isToday = dateStr === today;
+              const isFuture = dateStr > today;
+
+              const dotColor = isFuture ? null
+                : !summary?.hasData ? "bg-muted-foreground/20"
+                : summary.status === "green" ? "bg-green-500"
+                : summary.status === "yellow" ? "bg-yellow-500"
+                : "bg-red-500";
+
+              return (
+                <button
+                  key={dateStr}
+                  onClick={() => !isFuture && onSelectDay(dateStr)}
+                  disabled={isFuture}
+                  className={cn(
+                    "flex flex-col items-center justify-center py-1.5 rounded-xl transition-colors",
+                    !isFuture && "hover:bg-white/5 active:bg-white/10",
+                    isToday && "bg-primary/10 ring-1 ring-primary/40",
+                    isFuture && "opacity-30 cursor-default",
+                  )}
+                >
+                  <span className={cn(
+                    "text-[13px] font-medium tabular-nums leading-none",
+                    isToday ? "text-primary" : "text-foreground",
+                  )}>
+                    {day}
+                  </span>
+                  <div className={cn(
+                    "mt-1 h-1.5 w-1.5 rounded-full transition-colors",
+                    dotColor ?? "opacity-0",
+                  )} />
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Leyenda */}
+          <div className="flex items-center justify-center gap-4 mt-3 pt-3 border-t border-border/30">
+            {[
+              { color: "bg-green-500", label: "En objetivo" },
+              { color: "bg-yellow-500", label: "Fuera de rango" },
+              { color: "bg-red-500", label: "Muy lejos" },
+              { color: "bg-muted-foreground/20", label: "Sin registros" },
+            ].map(({ color, label }) => (
+              <div key={label} className="flex items-center gap-1.5">
+                <div className={cn("h-2 w-2 rounded-full shrink-0", color)} />
+                <span className="text-[10px] text-muted-foreground">{label}</span>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 // ─── Vista semanal ────────────────────────────────────────────────────────────
 
 function WeeklyView({
@@ -980,9 +1120,22 @@ function WeekDayRow({
 
 // ─── Página ───────────────────────────────────────────────────────────────────
 
+function getCurrentYearMonth() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function offsetMonth(yearMonth: string, delta: number): string {
+  const [y, m] = yearMonth.split("-").map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
 export function DashboardPage() {
-  const [view, setView] = useState<"day" | "week">("day");
+  const [view, setView] = useState<"day" | "week" | "month">("day");
   const [date, setDate] = useState(todayISO);
+  const [weekStart, setWeekStart] = useState(() => getMondayISO(todayISO()));
+  const [monthYear, setMonthYear] = useState(getCurrentYearMonth);
   const [advisorOpen, setAdvisorOpen] = useState(false);
   const [weekStart, setWeekStart] = useState(() => getMondayISO(todayISO()));
   const [data, setData] = useState<DayResponse | null>(null);
@@ -1076,10 +1229,40 @@ export function DashboardPage() {
   const eatKcal = data?.eatKcal ?? 0;
   const slots = ["breakfast", "lunch", "dinner", "snack", "other"];
 
-  // El target efectivo del día = base + EAT (kcal quemadas en entrenamiento)
-  const effectiveKcalTarget = (target?.kcalTarget ?? 0) + eatKcal;
+  // En volumen limpio el EAT no amplía el objetivo calórico (ya tiene un superávit planificado).
+  // En el resto de objetivos (mantenimiento, definición, recomposición, pérdida de peso) sí.
+  const goalMode = data?.goalMode ?? target?.goalMode ?? null;
+  const eatCountsTowardTarget = goalMode !== "volumen_limpio";
+  const effectiveKcalTarget = (target?.kcalTarget ?? 0) + (eatCountsTowardTarget ? eatKcal : 0);
   const consumed = p?.totals ?? { kcal: 0, proteinG: 0, fatG: 0, carbsG: 0 };
   const kcalStatus = p?.kcalStatus ?? "yellow";
+
+  // Etiqueta de balance calórico para mostrar bajo el anillo
+  const kcalBalance = consumed.kcal - effectiveKcalTarget;
+  const balanceInfo: { label: string; detail: string; color: string } | null = (() => {
+    if (!target || consumed.kcal === 0) return null;
+    const abs = Math.abs(kcalBalance);
+    if (goalMode === "volumen_limpio") {
+      // Mostrar siempre el superávit/déficit respecto al target (EAT no modifica el target)
+      if (kcalBalance >= 0) return { label: "Superávit", detail: `+${abs} kcal`, color: "text-blue-400" };
+      return { label: "Déficit", detail: `-${abs} kcal`, color: "text-amber-400" };
+    }
+    if (goalMode === "mantenimiento") {
+      if (kcalBalance > 50) return { label: "Superávit", detail: `+${abs} kcal`, color: "text-amber-400" };
+      if (kcalBalance < -50) return { label: "Déficit", detail: `-${abs} kcal`, color: "text-amber-400" };
+      return { label: "En balance", detail: `${kcalBalance > 0 ? "+" : ""}${kcalBalance} kcal`, color: "text-green-400" };
+    }
+    if (goalMode === "definicion" || goalMode === "perdida_peso") {
+      if (kcalBalance < 0) return { label: "Déficit real", detail: `-${abs} kcal`, color: "text-green-400" };
+      return { label: "Superávit", detail: `+${abs} kcal`, color: "text-red-400" };
+    }
+    if (goalMode === "recomposicion") {
+      if (kcalBalance >= -50 && kcalBalance <= 50) return { label: "Balance neutro", detail: `${kcalBalance > 0 ? "+" : ""}${kcalBalance} kcal`, color: "text-green-400" };
+      if (kcalBalance > 50) return { label: "Superávit", detail: `+${abs} kcal`, color: "text-amber-400" };
+      return { label: "Déficit", detail: `-${abs} kcal`, color: "text-blue-400" };
+    }
+    return null;
+  })();
 
   return (
     <div className="pb-24 md:pb-6">
@@ -1088,28 +1271,20 @@ export function DashboardPage() {
         <div className="max-w-lg mx-auto flex flex-col gap-2">
           {/* Selector de vista */}
           <div className="flex items-center gap-1 bg-muted/30 rounded-xl p-1 self-center">
-            <button
-              onClick={() => setView("day")}
-              className={cn(
-                "px-5 py-1.5 rounded-lg text-xs font-semibold transition-all",
-                view === "day"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              Diario
-            </button>
-            <button
-              onClick={() => setView("week")}
-              className={cn(
-                "px-5 py-1.5 rounded-lg text-xs font-semibold transition-all",
-                view === "week"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              Semana
-            </button>
+            {(["day", "week", "month"] as const).map((v) => (
+              <button
+                key={v}
+                onClick={() => setView(v)}
+                className={cn(
+                  "px-4 py-1.5 rounded-lg text-xs font-semibold transition-all",
+                  view === v
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {v === "day" ? "Diario" : v === "week" ? "Semana" : "Mes"}
+              </button>
+            ))}
           </div>
 
           {/* Cabecera de día (solo en vista diaria) */}
@@ -1123,6 +1298,28 @@ export function DashboardPage() {
                 {isToday && <span className="text-xs text-primary font-medium">Hoy</span>}
               </div>
               <button onClick={() => setDate((d) => offsetDate(d, 1))} disabled={isToday} className="p-1.5 rounded-lg hover:bg-white/5 text-muted-foreground disabled:opacity-30">
+                <ChevronRight className="h-5 w-5" />
+              </button>
+            </div>
+          )}
+
+          {/* Cabecera de mes (solo en vista mensual) */}
+          {view === "month" && (
+            <div className="flex items-center justify-between">
+              <button onClick={() => setMonthYear((m) => offsetMonth(m, -1))} className="p-1.5 rounded-lg hover:bg-white/5 text-muted-foreground">
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+              <div className="text-center">
+                <p className="text-sm font-semibold capitalize">
+                  {MONTH_NAMES_ES[parseInt(monthYear.split("-")[1]) - 1]} {monthYear.split("-")[0]}
+                </p>
+                {monthYear === getCurrentYearMonth() && <span className="text-xs text-primary font-medium">Este mes</span>}
+              </div>
+              <button
+                onClick={() => setMonthYear((m) => offsetMonth(m, 1))}
+                disabled={monthYear >= getCurrentYearMonth()}
+                className="p-1.5 rounded-lg hover:bg-white/5 text-muted-foreground disabled:opacity-30"
+              >
                 <ChevronRight className="h-5 w-5" />
               </button>
             </div>
@@ -1147,6 +1344,14 @@ export function DashboardPage() {
           )}
         </div>
       </div>
+
+      {/* ── Vista mensual ──────────────────────────────────────────────────── */}
+      {view === "month" && (
+        <MonthlyView
+          yearMonth={monthYear}
+          onSelectDay={(d) => { setDate(d); setView("day"); }}
+        />
+      )}
 
       {/* ── Vista semanal ──────────────────────────────────────────────────── */}
       {view === "week" && (
@@ -1173,12 +1378,25 @@ export function DashboardPage() {
               <CalorieRing
                 consumed={consumed.kcal}
                 target={effectiveKcalTarget}
-                rangeMin={target ? Math.round(target.kcalTarget * (1 - target.kcalGreenPct / 100)) : undefined}
-                rangeMax={target ? Math.round(target.kcalTarget * (1 + target.kcalGreenPct / 100)) : undefined}
+                rangeMin={target ? Math.round(effectiveKcalTarget * (1 - target.kcalGreenPct / 100)) : undefined}
+                rangeMax={target ? Math.round(effectiveKcalTarget * (1 + target.kcalGreenPct / 100)) : undefined}
                 status={kcalStatus}
               />
               {eatKcal > 0 && (
-                <p className="mt-1.5 text-xs text-green-400 font-medium">+{eatKcal} kcal de entrenamiento</p>
+                <p className={cn(
+                  "mt-1.5 text-xs font-medium",
+                  eatCountsTowardTarget ? "text-green-400" : "text-muted-foreground",
+                )}>
+                  {eatCountsTowardTarget
+                    ? `+${eatKcal} kcal quemadas · objetivo ampliado`
+                    : `${eatKcal} kcal quemadas · no modifica el objetivo`}
+                </p>
+              )}
+              {balanceInfo && (
+                <div className={cn("mt-2 flex items-center gap-1.5 text-xs font-semibold", balanceInfo.color)}>
+                  <span>{balanceInfo.label}</span>
+                  <span className="font-normal opacity-80">{balanceInfo.detail}</span>
+                </div>
               )}
             </div>
 
@@ -1210,8 +1428,13 @@ export function DashboardPage() {
                     <div className="flex items-center gap-2.5">
                       <Dumbbell className="h-4 w-4 text-green-400 shrink-0" />
                       <div>
-                        <p className="text-sm font-medium text-green-400">+{w.kcalBurned} kcal</p>
+                        <p className="text-sm font-medium text-green-400">
+                          {eatCountsTowardTarget ? `+${w.kcalBurned} kcal` : `${w.kcalBurned} kcal quemadas`}
+                        </p>
                         {w.notes && <p className="text-xs text-muted-foreground">{w.notes}</p>}
+                        {!eatCountsTowardTarget && (
+                          <p className="text-[10px] text-muted-foreground/70">No amplía el objetivo en volumen</p>
+                        )}
                       </div>
                     </div>
                     <button onClick={() => handleDeleteWorkout(w.id)} className="text-muted-foreground hover:text-destructive transition-colors p-1">
