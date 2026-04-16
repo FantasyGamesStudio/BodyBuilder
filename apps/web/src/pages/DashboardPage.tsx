@@ -345,7 +345,7 @@ function WorkoutForm({ date, onSave }: { date: string; onSave: (w: WorkoutLog) =
             <Dumbbell className="h-4 w-4 text-violet-400" />
           </div>
           <div className="min-w-0">
-            <p className="text-xs font-semibold text-violet-300 leading-none">Planificar</p>
+            <p className="text-xs font-semibold text-violet-300 leading-none">Planificar entreno</p>
             <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight">Avisa al asesor</p>
           </div>
         </button>
@@ -360,8 +360,8 @@ function WorkoutForm({ date, onSave }: { date: string; onSave: (w: WorkoutLog) =
             <Plus className="h-4 w-4 text-green-400" />
           </div>
           <div className="min-w-0">
-            <p className="text-xs font-semibold text-green-300 leading-none">Ya lo hice</p>
-            <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight">Registrar kcal</p>
+            <p className="text-xs font-semibold text-green-300 leading-none">Registrar entreno</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight">Añadir kcal quemadas</p>
           </div>
         </button>
       </div>
@@ -1254,13 +1254,28 @@ export function DashboardPage() {
     });
   }
 
-  function handleAddWorkout(w: WorkoutLog) {
-    setData((prev) => {
-      if (!prev) return prev;
-      const workouts = [...prev.workouts, w];
-      const eatKcal = workouts.reduce((s, wl) => s + wl.kcalBurned, 0);
-      return { ...prev, workouts, eatKcal };
-    });
+  async function handleAddWorkout(w: WorkoutLog) {
+    if (w.status === "done") {
+      // Borrar entrenos planificados del mismo día en background
+      const planned = data?.workouts.filter((wl) => wl.status === "planned" && wl.workoutDate === w.workoutDate) ?? [];
+      await Promise.all(planned.map((wl) => workoutsApi.delete(wl.id).catch(() => {})));
+      setData((prev) => {
+        if (!prev) return prev;
+        const workouts = [
+          ...prev.workouts.filter((wl) => !(wl.status === "planned" && wl.workoutDate === w.workoutDate)),
+          w,
+        ];
+        const eatKcal = workouts.filter((wl) => wl.status !== "planned").reduce((s, wl) => s + wl.kcalBurned, 0);
+        return { ...prev, workouts, eatKcal };
+      });
+    } else {
+      setData((prev) => {
+        if (!prev) return prev;
+        const workouts = [...prev.workouts, w];
+        const eatKcal = workouts.filter((wl) => wl.status !== "planned").reduce((s, wl) => s + wl.kcalBurned, 0);
+        return { ...prev, workouts, eatKcal };
+      });
+    }
   }
 
   const p = data?.progress;
@@ -1462,8 +1477,9 @@ export function DashboardPage() {
               </Card>
             )}
 
-            {/* Entrenamientos */}
+            {/* ── Entrenamientos ──────────────────────────────────────────── */}
             <div className="space-y-2">
+              <h2 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">Entrenamiento</h2>
               {(data?.workouts ?? []).map((w) => {
                 const isPlanned = w.status === "planned";
                 return (
