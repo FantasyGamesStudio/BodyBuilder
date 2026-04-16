@@ -58,10 +58,14 @@ const WEEK_DAY_SHORT = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 function CalorieRing({
   consumed,
   target,
+  rangeMin,
+  rangeMax,
   status,
 }: {
   consumed: number;
   target: number;
+  rangeMin?: number;
+  rangeMax?: number;
   status: "green" | "yellow" | "red";
 }) {
   const noData = consumed === 0;
@@ -88,7 +92,11 @@ function CalorieRing({
       </svg>
       <div className="absolute flex flex-col items-center">
         <span className="text-4xl font-bold tabular-nums">{consumed}</span>
-        <span className="text-xs text-muted-foreground">de {target} kcal</span>
+        {rangeMin && rangeMax ? (
+          <span className="text-xs text-muted-foreground tabular-nums">{rangeMin}–{rangeMax} kcal</span>
+        ) : (
+          <span className="text-xs text-muted-foreground">de {target} kcal</span>
+        )}
         {noData ? (
           <span className="mt-1 text-xs font-medium px-2 py-0.5 rounded-full bg-muted/30 text-muted-foreground">
             Sin registros
@@ -1183,7 +1191,13 @@ export function DashboardPage() {
 
             {/* Anillo */}
             <div className="flex flex-col items-center py-2">
-              <CalorieRing consumed={consumed.kcal} target={effectiveKcalTarget} status={kcalStatus} />
+              <CalorieRing
+                consumed={consumed.kcal}
+                target={effectiveKcalTarget}
+                rangeMin={target ? Math.round(target.kcalTarget * (1 - target.kcalGreenPct / 100)) : undefined}
+                rangeMax={target ? Math.round(target.kcalTarget * (1 + target.kcalGreenPct / 100)) : undefined}
+                status={kcalStatus}
+              />
               {eatKcal > 0 && (
                 <p className="mt-1.5 text-xs text-green-400 font-medium">+{eatKcal} kcal de entrenamiento</p>
               )}
@@ -1243,11 +1257,7 @@ export function DashboardPage() {
                   <h2 className="text-sm font-semibold leading-none">Asesor del día</h2>
                   <span className="h-1.5 w-1.5 rounded-full bg-green-400 animate-pulse shrink-0" />
                 </div>
-                {target && (
-                  <p className="mt-1 text-[11px] text-muted-foreground tabular-nums">
-                    Objetivo hoy: {Math.round(target.kcalTarget * (1 - target.kcalGreenPct / 100))}–{Math.round(target.kcalTarget * (1 + target.kcalGreenPct / 100))} kcal
-                  </p>
-                )}
+                <p className="mt-0.5 text-[11px] text-muted-foreground">Cuéntame qué has comido o pídeme consejo</p>
               </div>
             </div>
 
