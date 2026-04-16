@@ -295,7 +295,14 @@ export const advisorRoutes: FastifyPluginAsync = async (app) => {
       orderBy: (m, { asc }) => [asc(m.createdAt)],
     });
 
-    return reply.send({ messages });
+    return reply.send({
+      messages: messages.map((m) => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        createdAt: m.createdAt.toISOString(),
+      })),
+    });
   });
 
   /**

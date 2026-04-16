@@ -163,7 +163,9 @@ export function AdvisorPage() {
     ]).then(([historyRes, recurringRes]) => {
       setEntries(historyRes.messages.map((m) => ({ message: m })));
       setRecurring(recurringRes.items);
-    }).catch(() => {});
+    }).catch((err) => {
+      console.error("Error cargando historial/rotativo:", err);
+    });
   }, [date]);
 
   // Auto-scroll al fondo
