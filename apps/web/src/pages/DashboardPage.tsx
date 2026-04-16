@@ -1244,21 +1244,15 @@ export function DashboardPage() {
                   <span className="h-1.5 w-1.5 rounded-full bg-green-400 animate-pulse shrink-0" />
                 </div>
                 {target && (
-                  <div className="mt-1.5 flex items-center gap-2">
-                    <div className="flex-1 h-1.5 rounded-full bg-muted/50 overflow-hidden">
-                      <div
-                        className={cn(
-                          "h-full rounded-full transition-all duration-700",
-                          kcalStatus === "green" ? "bg-green-500" :
-                          kcalStatus === "yellow" ? "bg-yellow-500" : "bg-red-500",
-                        )}
-                        style={{ width: `${Math.min((consumed.kcal / effectiveKcalTarget) * 100, 100)}%` }}
-                      />
-                    </div>
-                    <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">
-                      {consumed.kcal}/{effectiveKcalTarget} kcal
-                    </span>
-                  </div>
+                  <p className="mt-1 text-[11px] text-muted-foreground tabular-nums">
+                    Objetivo hoy: {Math.round(target.kcalTarget * (1 - target.kcalGreenPct / 100))}–{Math.round(target.kcalTarget * (1 + target.kcalGreenPct / 100))} kcal
+                  </p>
+                )}
+              </div>
+                {target && (
+                  <p className="mt-1 text-[11px] text-muted-foreground tabular-nums">
+                    Objetivo hoy: {Math.round(target.kcalTarget * (1 - target.kcalGreenPct / 100))}–{Math.round(target.kcalTarget * (1 + target.kcalGreenPct / 100))} kcal
+                  </p>
                 )}
               </div>
             </div>
