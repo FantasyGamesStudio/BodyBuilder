@@ -1249,12 +1249,6 @@ export function DashboardPage() {
                   </p>
                 )}
               </div>
-                {target && (
-                  <p className="mt-1 text-[11px] text-muted-foreground tabular-nums">
-                    Objetivo hoy: {Math.round(target.kcalTarget * (1 - target.kcalGreenPct / 100))}–{Math.round(target.kcalTarget * (1 + target.kcalGreenPct / 100))} kcal
-                  </p>
-                )}
-              </div>
             </div>
 
             {/* Componente del asesor */}
