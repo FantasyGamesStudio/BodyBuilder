@@ -429,14 +429,14 @@ export function AdvisorPage() {
               className={cn(
                 "w-full resize-none rounded-2xl border border-border/60 bg-card px-4 py-2.5",
                 "text-sm placeholder:text-muted-foreground focus:outline-none focus:border-primary/60",
-                "max-h-56 min-h-[2.5rem] leading-relaxed disabled:opacity-50",
+                "max-h-72 min-h-[2.5rem] leading-relaxed disabled:opacity-50",
                 recording && "border-red-500/50 bg-red-500/5",
               )}
               style={{ height: "auto" }}
               onInput={(e) => {
                 const t = e.currentTarget;
                 t.style.height = "auto";
-                t.style.height = `${Math.min(t.scrollHeight, 224)}px`;
+                t.style.height = `${Math.min(t.scrollHeight, 288)}px`;
               }}
             />
           </div>

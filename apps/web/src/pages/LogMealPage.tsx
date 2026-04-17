@@ -393,8 +393,8 @@ export function LogMealPage() {
                 }
                 disabled={sending || transcribing || recording}
                 rows={2}
-                className="w-full resize-none bg-transparent px-4 pt-3 pb-1 text-sm placeholder:text-muted-foreground focus:outline-none leading-relaxed disabled:opacity-50 min-h-[3.5rem] max-h-32"
-                onInput={(e) => { const t = e.currentTarget; t.style.height = "auto"; t.style.height = `${Math.min(t.scrollHeight, 128)}px`; }}
+                className="w-full resize-none bg-transparent px-4 pt-3 pb-1 text-sm placeholder:text-muted-foreground focus:outline-none leading-relaxed disabled:opacity-50 min-h-[3.5rem] max-h-44"
+                onInput={(e) => { const t = e.currentTarget; t.style.height = "auto"; t.style.height = `${Math.min(t.scrollHeight, 176)}px`; }}
               />
               <div className="flex items-center gap-1 px-2 pb-2 pt-1">
                 {/* Galería (múltiple) */}
