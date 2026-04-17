@@ -16,6 +16,70 @@ function getOpenAI(): OpenAI {
   return _openai;
 }
 
+// ─── Base de datos nutricional de referencia (por 100g salvo indicación) ──────
+
+type FoodEntry = { kcal: number; proteinG: number; carbsG: number; fatG: number };
+
+const FOOD_DB: Record<string, FoodEntry> = {
+  "pasta cocida":             { kcal: 131, proteinG: 4.5,  carbsG: 26.0, fatG: 0.9 },
+  "arroz cocido":             { kcal: 130, proteinG: 2.7,  carbsG: 28.2, fatG: 0.3 },
+  "pan de molde blanco":      { kcal: 265, proteinG: 8.0,  carbsG: 50.0, fatG: 3.5 },
+  "pan baguette":             { kcal: 270, proteinG: 9.0,  carbsG: 52.0, fatG: 2.5 },
+  "pan integral":             { kcal: 247, proteinG: 9.0,  carbsG: 45.0, fatG: 3.5 },
+  "patata cocida":            { kcal:  77, proteinG: 2.0,  carbsG: 17.0, fatG: 0.1 },
+  "patata al horno":          { kcal:  93, proteinG: 2.5,  carbsG: 21.0, fatG: 0.1 },
+  "avena cruda":              { kcal: 370, proteinG: 13.0, carbsG: 59.0, fatG: 7.0 },
+  "platano":                  { kcal:  89, proteinG: 1.1,  carbsG: 23.0, fatG: 0.3 },
+  "manzana":                  { kcal:  52, proteinG: 0.3,  carbsG: 14.0, fatG: 0.2 },
+  "naranja":                  { kcal:  47, proteinG: 0.9,  carbsG: 12.0, fatG: 0.1 },
+  "uvas":                     { kcal:  69, proteinG: 0.7,  carbsG: 18.0, fatG: 0.2 },
+  "mango":                    { kcal:  60, proteinG: 0.8,  carbsG: 15.0, fatG: 0.4 },
+  "pera":                     { kcal:  57, proteinG: 0.4,  carbsG: 15.0, fatG: 0.1 },
+  "pechuga de pollo cocida":  { kcal: 165, proteinG: 31.0, carbsG:  0.0, fatG: 3.6 },
+  "pechuga de pavo cocida":   { kcal: 135, proteinG: 29.0, carbsG:  0.0, fatG: 1.7 },
+  "lomo de cerdo cocido":     { kcal: 175, proteinG: 26.0, carbsG:  0.0, fatG: 7.0 },
+  "salmon cocinado":          { kcal: 208, proteinG: 25.0, carbsG:  0.0, fatG: 12.0 },
+  "atun en agua escurrido":   { kcal: 116, proteinG: 26.0, carbsG:  0.0, fatG: 0.8 },
+  "huevo entero":             { kcal: 143, proteinG: 12.5, carbsG:  1.0, fatG: 10.0 },
+  "clara de huevo":           { kcal:  52, proteinG: 10.9, carbsG:  0.7, fatG: 0.2 },
+  "queso fresco 0%":          { kcal:  63, proteinG: 11.0, carbsG:  3.5, fatG: 0.2 },
+  "yogur griego 0%":          { kcal:  57, proteinG: 9.0,  carbsG:  4.0, fatG: 0.3 },
+  "leche semidesnatada":      { kcal:  46, proteinG: 3.3,  carbsG:  5.0, fatG: 1.5 },
+  "aceite de oliva":          { kcal: 884, proteinG: 0.0,  carbsG:  0.0, fatG: 100.0 },
+  "mantequilla":              { kcal: 717, proteinG: 0.9,  carbsG:  0.1, fatG: 81.0 },
+  "almendras":                { kcal: 579, proteinG: 21.0, carbsG: 10.0, fatG: 50.0 },
+  "aguacate":                 { kcal: 160, proteinG: 2.0,  carbsG:  2.0, fatG: 15.0 },
+  "lentejas cocidas":         { kcal: 116, proteinG: 9.0,  carbsG: 20.0, fatG: 0.4 },
+  "garbanzos cocidos":        { kcal: 164, proteinG: 9.0,  carbsG: 27.0, fatG: 2.6 },
+  "brocoli cocido":           { kcal:  35, proteinG: 2.4,  carbsG:  5.1, fatG: 0.4 },
+  "espinacas cocidas":        { kcal:  23, proteinG: 3.0,  carbsG:  1.4, fatG: 0.4 },
+  "zanahoria cruda":          { kcal:  41, proteinG: 0.9,  carbsG:  9.6, fatG: 0.2 },
+  "tomate crudo":             { kcal:  18, proteinG: 0.9,  carbsG:  3.9, fatG: 0.2 },
+  "lechuga":                  { kcal:  15, proteinG: 1.4,  carbsG:  2.2, fatG: 0.2 },
+};
+
+/** Busca el alimento más parecido en FOOD_DB por similitud de nombre (lowercase, sin tildes). */
+function normalizeFoodName(name: string): string {
+  return name.toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9 ]/g, "")
+    .trim();
+}
+
+function findFood(name: string): { key: string; entry: FoodEntry } | null {
+  const normalized = normalizeFoodName(name);
+  // Búsqueda exacta primero
+  for (const [key, entry] of Object.entries(FOOD_DB)) {
+    if (normalizeFoodName(key) === normalized) return { key, entry };
+  }
+  // Búsqueda por contención
+  for (const [key, entry] of Object.entries(FOOD_DB)) {
+    const nk = normalizeFoodName(key);
+    if (normalized.includes(nk) || nk.includes(normalized)) return { key, entry };
+  }
+  return null;
+}
+
 // ─── Tool definitions para GPT-4o ─────────────────────────────────────────────
 
 const tools: OpenAI.Chat.ChatCompletionTool[] = [
@@ -52,6 +116,39 @@ const tools: OpenAI.Chat.ChatCompletionTool[] = [
               },
             },
           },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "calculate_meal_portions",
+      description:
+        "Calcula matemáticamente los gramos exactos de cada alimento necesarios para alcanzar " +
+        "los objetivos de macros del usuario. Llama a esta función SIEMPRE que el usuario pida " +
+        "consejo sobre qué comer o cuánto comer para cerrar el día. NO intentes calcular los gramos " +
+        "tú mismo: usa esta función para obtener los cálculos precisos y luego presenta el resultado al usuario.",
+      parameters: {
+        type: "object",
+        required: ["foods", "targetProteinG", "targetCarbsG", "targetFatMinG", "targetKcal"],
+        properties: {
+          foods: {
+            type: "array",
+            description: "Lista de alimentos que quieres incluir en la propuesta de comida.",
+            items: {
+              type: "object",
+              required: ["name"],
+              properties: {
+                name: { type: "string", description: "Nombre del alimento (ej. 'pasta cocida', 'pechuga de pollo cocida')" },
+                fixedG: { type: "number", description: "Si el usuario indicó una cantidad fija, ponla aquí. Si no, omite este campo y el sistema calculará los gramos óptimos." },
+              },
+            },
+          },
+          targetProteinG: { type: "number", description: "Gramos de proteína que deben cubrirse con esta comida." },
+          targetCarbsG: { type: "number", description: "Gramos de carbohidratos que deben cubrirse con esta comida." },
+          targetFatMinG: { type: "number", description: "Gramos mínimos de grasa que deben cubrirse con esta comida." },
+          targetKcal: { type: "number", description: "Calorías totales que deben cubrirse con esta comida." },
         },
       },
     },
@@ -231,96 +328,35 @@ async function buildSystemPrompt(userId: string, date: string): Promise<string> 
 Eres directo, amigable y práctico. Responde siempre en español.
 
 ════════════════════════════════════════════════════════════
-TABLA DE REFERENCIA NUTRICIONAL (valores por 100g salvo indicación)
-Úsala SIEMPRE para calcular gramos. NO uses valores de memoria.
-════════════════════════════════════════════════════════════
-Alimento                      | kcal | P(g) | C(g) | G(g)
-------------------------------|------|------|------|-----
-Pasta cocida                  |  131 |  4.5 | 26.0 |  0.9
-Arroz cocido                  |  130 |  2.7 | 28.2 |  0.3
-Pan de molde blanco           |  265 |  8.0 | 50.0 |  3.5
-Pan baguette                  |  270 |  9.0 | 52.0 |  2.5
-Patata cocida                 |   77 |  2.0 | 17.0 |  0.1
-Patata al horno               |   93 |  2.5 | 21.0 |  0.1
-Avena (cruda)                 |  370 | 13.0 | 59.0 |  7.0
-Plátano                       |   89 |  1.1 | 23.0 |  0.3
-Manzana                       |   52 |  0.3 | 14.0 |  0.2
-Naranja                       |   47 |  0.9 | 12.0 |  0.1
-Uvas                          |   69 |  0.7 | 18.0 |  0.2
-Mango                         |   60 |  0.8 | 15.0 |  0.4
-Pechuga de pollo (cocida)     |  165 | 31.0 |  0.0 |  3.6
-Pechuga de pavo (cocida)      |  135 | 29.0 |  0.0 |  1.7
-Lomo de cerdo (cocido)        |  175 | 26.0 |  0.0 |  7.0
-Salmón (cocinado)             |  208 | 25.0 |  0.0 | 12.0
-Atún en agua (escurrido)      |  116 | 26.0 |  0.0 |  0.8
-Huevo entero (1 ud ≈ 60g)     |   86 |  7.5 |  0.6 |  6.0
-Clara de huevo (1 ud ≈ 33g)   |   17 |  3.6 |  0.2 |  0.0
-Queso fresco 0%               |   63 | 11.0 |  3.5 |  0.2
-Yogur griego 0%               |   57 |  9.0 |  4.0 |  0.3
-Leche semidesnatada           |   46 |  3.3 |  5.0 |  1.5
-Aceite de oliva               |  884 |  0.0 |  0.0 | 100
-Mantequilla                   |  717 |  0.9 |  0.1 | 81.0
-Almendras                     |  579 | 21.0 | 10.0 | 50.0
-Aguacate                      |  160 |  2.0 |  2.0 | 15.0
-Lentejas cocidas              |  116 |  9.0 | 20.0 |  0.4
-Garbanzos cocidos             |  164 |  9.0 | 27.0 |  2.6
-Brócoli cocido                |   35 |  2.4 |  5.1 |  0.4
-Espinacas cocidas             |   23 |  3.0 |  1.4 |  0.4
-Zanahoria cruda               |   41 |  0.9 |  9.6 |  0.2
-Tomate crudo                  |   18 |  0.9 |  3.9 |  0.2
-Lechuga                       |   15 |  1.4 |  2.2 |  0.2
-════════════════════════════════════════════════════════════
-
-CÓMO USAR LA TABLA para calcular una porción:
-  Si necesitas X gramos de carbos de pasta cocida:
-    gramos_porción = (X / 26.0) × 100
-  Si necesitas X gramos de proteína de pechuga:
-    gramos_porción = (X / 31.0) × 100
-  Siempre verifica que la porción calculada da los macros esperados antes de responder.
-
-════════════════════════════════════════════════════════════
 MISIÓN PRINCIPAL — LEE ESTO PRIMERO
 ════════════════════════════════════════════════════════════
-Tu objetivo número 1 cuando el usuario pide consejo sobre qué comer es CERRAR LOS TRES MACROS
-del día lo más ajustado posible. Las calorías son consecuencia de los macros, NO al revés.
+Cuando el usuario pida consejo sobre qué comer o cuánto comer, debes llamar OBLIGATORIAMENTE
+a la función calculate_meal_portions. NUNCA calcules los gramos tú mismo: el backend tiene
+una base de datos nutricional precisa y hará los cálculos matemáticamente correctos.
 
-REGLA DE ORO — orden de prioridad al diseñar una comida:
-  1. Carbohidratos: cúbrelos primero. Son el macro más difícil de cuadrar y el que más
-     se descuida. Si quedan ${Math.max(0, remainingCarbs).toFixed(0)}g de carbos, la comida DEBE contener ≈ ese aporte en carbos.
-  2. Proteína: cúbrela hasta el mínimo. Si ya se ha alcanzado o superado el objetivo de
-     proteína del día, NO añadas más fuentes proteicas. Usa fuentes bajas en proteína para
-     rellenar calorías si es necesario (arroz, pasta, pan, fruta, aceite).
-  3. Grasa: ajusta al rango. Completa las calorías restantes con grasa si carbos y proteína
-     ya están cubiertos, manteniéndote dentro del rango mín–máx.
+OBJETIVOS ACTUALES DE ESTA COMIDA:
+  Calorías restantes: ${remainingKcal} kcal
+  Proteína restante:  ${Math.max(0, remainingProtein).toFixed(0)}g
+  Carbos restantes:   ${Math.max(0, remainingCarbs).toFixed(0)}g
+  Grasa restante:     ${Math.max(0, remainingFatMin).toFixed(0)}–${Math.max(0, remainingFatMax).toFixed(0)}g
 
-PROCESO OBLIGATORIO cuando el usuario pide qué comer:
-  PASO 1 — Anota los objetivos de esta comida:
-            Calorías restantes: ${remainingKcal} kcal
-            Proteína restante:  ${Math.max(0, remainingProtein).toFixed(0)}g
-            Carbos restantes:   ${Math.max(0, remainingCarbs).toFixed(0)}g
-            Grasa restante:     ${Math.max(0, remainingFatMin).toFixed(0)}–${Math.max(0, remainingFatMax).toFixed(0)}g
-  PASO 2 — Determina si la proteína ya está cubierta o cerca del objetivo.
-            Si proteína restante < 20g: elige alimentos MUY BAJOS en proteína (pasta, arroz,
-            pan, fruta, patata) y céntrate en cubrir los carbos restantes.
-  PASO 3 — Usando la TABLA DE REFERENCIA NUTRICIONAL de arriba, calcula los gramos de
-            cada alimento mediante la fórmula: gramos = (macro_objetivo / macro_por_100g) × 100.
-            Ejemplo: necesito 257g de carbos de pasta → (257/26.0)×100 = 988g de pasta cocida.
-  PASO 4 — Suma los macros de TODOS los alimentos de la propuesta. Compara con el objetivo:
-            ¿Carbos propuestos ≈ ${Math.max(0, remainingCarbs).toFixed(0)}g? ¿Proteína propuesta ≈ ${Math.max(0, remainingProtein).toFixed(0)}g?
-            Si la desviación es >15g en cualquier macro, ajusta cantidades o cambia alimentos.
-  PASO 5 — Da GRAMOS CONCRETOS de cada alimento redondeados a múltiplos de 10g.
-  PASO 6 — Muestra el desglose por alimento (gramos, kcal, P, C, G) y al final el total:
-            "**Total propuesta:** X kcal | P:Xg | C:Xg | G:Xg"
-            "**Objetivo restante:** ${remainingKcal} kcal | P:${Math.max(0, remainingProtein).toFixed(0)}g | C:${Math.max(0, remainingCarbs).toFixed(0)}g | G:${Math.max(0, remainingFatMin).toFixed(0)}–${Math.max(0, remainingFatMax).toFixed(0)}g"
+CÓMO USAR calculate_meal_portions:
+  1. Decide qué alimentos quieres proponer (máximo 3-4 para no complicar la comida).
+  2. Pasa como "foods" la lista de alimentos, con los nombres en español simple
+     (ej. "pasta cocida", "pechuga de pollo cocida", "arroz cocido", "platano").
+  3. Pasa los valores de targetProteinG, targetCarbsG, targetFatMinG y targetKcal
+     directamente desde los OBJETIVOS ACTUALES de arriba.
+  4. El backend calculará los gramos exactos y te devolverá el resultado.
+  5. Presenta el resultado al usuario con el desglose por alimento y el total vs objetivo.
 
-ERRORES CRÍTICOS que debes evitar:
-  ✗ Proponer mucha proteína (pollo, huevos, claras) cuando el objetivo de proteína ya está
-    cubierto o casi cubierto — esto desperdicia calorías que deberían ser carbos.
-  ✗ Cuadrar solo las calorías ignorando que carbos y proteína estén desequilibrados.
-  ✗ Decir "estás bastante equilibrado" cuando hay una desviación de >20g en carbos o proteína.
+SELECCIÓN DE ALIMENTOS — regla de prioridad:
+  - Si proteína restante < 20g: elige alimentos BAJOS en proteína (pasta, arroz, pan,
+    patata, fruta) para cubrir los carbos sin pasarte de proteína.
+  - Si proteína restante ≥ 20g: puedes incluir una fuente proteica + fuentes de carbos.
+  - Si el usuario nombra alimentos concretos, úsalos. Si no, elige tú según la prioridad.
 
-Si el usuario ha pedido un alimento concreto (ej. "¿cuánto arroz me echo?"), calcula exactamente
-cuántos gramos de ese alimento cubren los carbos restantes, sin inventar otras comidas.
+Si el usuario pregunta por un alimento concreto (ej. "¿cuánto arroz?"), llama a
+calculate_meal_portions con solo ese alimento y los objetivos actuales.
 ════════════════════════════════════════════════════════════
 
 PERFIL:
@@ -609,12 +645,140 @@ export const advisorRoutes: FastifyPluginAsync = async (app) => {
       kcal: number; proteinG: number; fatG: number; carbsG: number;
     }> = [];
 
-    // ── 5. Ejecutar tool calls (add_meal_entries) ─────────────────────────────
+    // ── 5. Ejecutar tool calls ────────────────────────────────────────────────
     if (assistantMessage.tool_calls?.length) {
       const toolResults: OpenAI.Chat.ChatCompletionMessageParam[] = [assistantMessage];
 
       for (const toolCall of assistantMessage.tool_calls) {
         if (!("function" in toolCall)) continue;
+
+        // ── 5a. calculate_meal_portions: cálculo matemático en el backend ──────
+        if (toolCall.function.name === "calculate_meal_portions") {
+          const args = JSON.parse(toolCall.function.arguments) as {
+            foods: Array<{ name: string; fixedG?: number }>;
+            targetProteinG: number;
+            targetCarbsG: number;
+            targetFatMinG: number;
+            targetKcal: number;
+          };
+
+          // Resolver qué alimentos están en la BD y cuáles no
+          const resolved = args.foods.map((f) => ({
+            name: f.name,
+            fixedG: f.fixedG,
+            dbEntry: findFood(f.name),
+          }));
+
+          // Alimentos con cantidad fija: calcular sus macros y restar del objetivo
+          let remainP = args.targetProteinG;
+          let remainC = args.targetCarbsG;
+          let remainF = args.targetFatMinG;
+          let remainKcal = args.targetKcal;
+
+          const resultLines: string[] = [];
+
+          for (const item of resolved) {
+            if (item.fixedG !== undefined && item.dbEntry) {
+              const factor = item.fixedG / 100;
+              const p = item.dbEntry.entry.proteinG * factor;
+              const c = item.dbEntry.entry.carbsG * factor;
+              const f = item.dbEntry.entry.fatG * factor;
+              const k = item.dbEntry.entry.kcal * factor;
+              remainP -= p;
+              remainC -= c;
+              remainF -= f;
+              remainKcal -= k;
+              resultLines.push(
+                `${item.name}: ${item.fixedG}g → ${Math.round(k)} kcal | P:${p.toFixed(1)}g C:${c.toFixed(1)}g G:${f.toFixed(1)}g (cantidad fija)`
+              );
+            }
+          }
+
+          // Alimentos sin cantidad fija: distribuir los macros restantes
+          // Estrategia: primero cubrir carbos con fuentes ricas en carbos, luego proteína, luego grasa
+          const freeItems = resolved.filter((i) => i.fixedG === undefined && i.dbEntry);
+          const unknownItems = resolved.filter((i) => !i.dbEntry);
+
+          // Ordenar: los más ricos en carbos primero, luego proteína, luego grasa
+          freeItems.sort((a, b) => {
+            const carbRatioA = (a.dbEntry!.entry.carbsG / (a.dbEntry!.entry.kcal || 1));
+            const carbRatioB = (b.dbEntry!.entry.carbsG / (b.dbEntry!.entry.kcal || 1));
+            return carbRatioB - carbRatioA;
+          });
+
+          // Asignar gramos a cada alimento libre usando los macros restantes
+          for (let i = 0; i < freeItems.length; i++) {
+            const item = freeItems[i];
+            if (!item.dbEntry) continue;
+            const e = item.dbEntry.entry;
+
+            let grams = 0;
+
+            if (i < freeItems.length - 1) {
+              // Para todos menos el último: asignar proporcional a su capacidad de cubrir carbos
+              // Si tiene carbos significativos, usarlo para cubrir carbos restantes
+              if (e.carbsG > 5 && remainC > 0) {
+                grams = Math.round((remainC / freeItems.length) / (e.carbsG / 100));
+              } else if (e.proteinG > 10 && remainP > 0) {
+                grams = Math.round(remainP / (e.proteinG / 100));
+              } else if (e.fatG > 5 && remainF > 0) {
+                grams = Math.round(remainF / (e.fatG / 100));
+              } else {
+                grams = Math.round(remainKcal / freeItems.length / (e.kcal / 100));
+              }
+            } else {
+              // Para el último alimento: cubrir exactamente las kcal restantes
+              grams = remainKcal > 0 ? Math.max(0, Math.round(remainKcal / (e.kcal / 100))) : 0;
+            }
+
+            // Redondear a múltiplos de 10g para mayor practicidad
+            grams = Math.round(grams / 10) * 10;
+            grams = Math.max(0, grams);
+
+            const factor = grams / 100;
+            const p = e.proteinG * factor;
+            const c = e.carbsG * factor;
+            const f = e.fatG * factor;
+            const k = e.kcal * factor;
+            remainP -= p;
+            remainC -= c;
+            remainF -= f;
+            remainKcal -= k;
+
+            resultLines.push(
+              `${item.name}: ${grams}g → ${Math.round(k)} kcal | P:${p.toFixed(1)}g C:${c.toFixed(1)}g G:${f.toFixed(1)}g`
+            );
+          }
+
+          for (const item of unknownItems) {
+            resultLines.push(`${item.name}: alimento no encontrado en la base de datos, estima tú los gramos`);
+          }
+
+          // Recalcular totales reales para el resumen
+          const totalP = args.targetProteinG - remainP;
+          const totalC = args.targetCarbsG - remainC;
+          const totalF = args.targetFatMinG - remainF;
+          const totalKcal = args.targetKcal - remainKcal;
+
+          const summary = [
+            "RESULTADO DEL CÁLCULO DE PORCIONES:",
+            ...resultLines,
+            `TOTAL PROPUESTA: ${Math.round(totalKcal)} kcal | P:${totalP.toFixed(1)}g | C:${totalC.toFixed(1)}g | G:${totalF.toFixed(1)}g`,
+            `OBJETIVO ERA:    ${args.targetKcal} kcal | P:${args.targetProteinG}g | C:${args.targetCarbsG}g | G:≥${args.targetFatMinG}g`,
+            `DESVIACIÓN:      ${Math.round(totalKcal - args.targetKcal)} kcal | P:${(totalP - args.targetProteinG).toFixed(1)}g | C:${(totalC - args.targetCarbsG).toFixed(1)}g`,
+            "Presenta estos resultados al usuario con el desglose por alimento y el resumen total vs objetivo.",
+          ].join("\n");
+
+          toolResults.push({
+            role: "tool",
+            tool_call_id: toolCall.id,
+            content: summary,
+          });
+
+          continue;
+        }
+
+        // ── 5b. add_meal_entries: registrar comidas ───────────────────────────
         if (toolCall.function.name !== "add_meal_entries") continue;
 
         const args = JSON.parse(toolCall.function.arguments) as {
