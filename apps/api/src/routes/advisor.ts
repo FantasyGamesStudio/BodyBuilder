@@ -123,32 +123,23 @@ const tools: OpenAI.Chat.ChatCompletionTool[] = [
   {
     type: "function",
     function: {
-      name: "calculate_meal_portions",
+      name: "lookup_food_nutrition",
       description:
-        "Calcula matemáticamente los gramos exactos de cada alimento necesarios para alcanzar " +
-        "los objetivos de macros del usuario. Llama a esta función SIEMPRE que el usuario pida " +
-        "consejo sobre qué comer o cuánto comer para cerrar el día. NO intentes calcular los gramos " +
-        "tú mismo: usa esta función para obtener los cálculos precisos y luego presenta el resultado al usuario.",
+        "Consulta los valores nutricionales precisos de un alimento por cada 100g. " +
+        "Úsala cuando necesites saber exactamente cuántas kcal, proteína, carbos o grasa tiene un alimento " +
+        "para calcular tú mismo los gramos necesarios. También calcula automáticamente los gramos necesarios " +
+        "para cubrir un macro objetivo si se especifica targetMacro y targetG.",
       parameters: {
         type: "object",
-        required: ["foods", "targetProteinG", "targetCarbsG", "targetFatMinG", "targetKcal"],
+        required: ["foodName"],
         properties: {
-          foods: {
-            type: "array",
-            description: "Lista de alimentos que quieres incluir en la propuesta de comida.",
-            items: {
-              type: "object",
-              required: ["name"],
-              properties: {
-                name: { type: "string", description: "Nombre del alimento (ej. 'pasta cocida', 'pechuga de pollo cocida')" },
-                fixedG: { type: "number", description: "Si el usuario indicó una cantidad fija, ponla aquí. Si no, omite este campo y el sistema calculará los gramos óptimos." },
-              },
-            },
+          foodName: { type: "string", description: "Nombre del alimento en español (ej. 'pasta cocida', 'arroz cocido', 'pechuga de pollo cocida')" },
+          targetMacro: {
+            type: "string",
+            enum: ["kcal", "proteinG", "carbsG", "fatG"],
+            description: "Macro que quieres cubrir con este alimento. Si se especifica, el backend calculará los gramos necesarios.",
           },
-          targetProteinG: { type: "number", description: "Gramos de proteína que deben cubrirse con esta comida." },
-          targetCarbsG: { type: "number", description: "Gramos de carbohidratos que deben cubrirse con esta comida." },
-          targetFatMinG: { type: "number", description: "Gramos mínimos de grasa que deben cubrirse con esta comida." },
-          targetKcal: { type: "number", description: "Calorías totales que deben cubrirse con esta comida." },
+          targetG: { type: "number", description: "Cantidad del macro objetivo que quieres cubrir (en gramos o kcal)." },
         },
       },
     },
@@ -330,33 +321,30 @@ Eres directo, amigable y práctico. Responde siempre en español.
 ════════════════════════════════════════════════════════════
 MISIÓN PRINCIPAL — LEE ESTO PRIMERO
 ════════════════════════════════════════════════════════════
-Cuando el usuario pida consejo sobre qué comer o cuánto comer, debes llamar OBLIGATORIAMENTE
-a la función calculate_meal_portions. NUNCA calcules los gramos tú mismo: el backend tiene
-una base de datos nutricional precisa y hará los cálculos matemáticamente correctos.
+Tu objetivo al dar consejos de comida es CERRAR LOS TRES MACROS del día, no solo las calorías.
 
-OBJETIVOS ACTUALES DE ESTA COMIDA:
-  Calorías restantes: ${remainingKcal} kcal
-  Proteína restante:  ${Math.max(0, remainingProtein).toFixed(0)}g
-  Carbos restantes:   ${Math.max(0, remainingCarbs).toFixed(0)}g
-  Grasa restante:     ${Math.max(0, remainingFatMin).toFixed(0)}–${Math.max(0, remainingFatMax).toFixed(0)}g
+OBJETIVOS RESTANTES HOY:
+  Calorías: ${remainingKcal} kcal | Proteína: ${Math.max(0, remainingProtein).toFixed(0)}g | Carbos: ${Math.max(0, remainingCarbs).toFixed(0)}g | Grasa: ${Math.max(0, remainingFatMin).toFixed(0)}–${Math.max(0, remainingFatMax).toFixed(0)}g
 
-CÓMO USAR calculate_meal_portions:
-  1. Decide qué alimentos quieres proponer (máximo 3-4 para no complicar la comida).
-  2. Pasa como "foods" la lista de alimentos, con los nombres en español simple
-     (ej. "pasta cocida", "pechuga de pollo cocida", "arroz cocido", "platano").
-  3. Pasa los valores de targetProteinG, targetCarbsG, targetFatMinG y targetKcal
-     directamente desde los OBJETIVOS ACTUALES de arriba.
-  4. El backend calculará los gramos exactos y te devolverá el resultado.
-  5. Presenta el resultado al usuario con el desglose por alimento y el total vs objetivo.
+CÓMO PROPONER UNA COMIDA:
+  1. Decide los alimentos (máx. 3-4). Prioriza fuentes de carbos si quedan muchos carbos;
+     solo incluye proteína si aún falta cubrir el objetivo proteico.
+  2. Para cada alimento, llama a lookup_food_nutrition con targetMacro y targetG para obtener
+     los gramos exactos. El backend hace el cálculo preciso, tú NO hagas la aritmética.
+     - Para la fuente principal de carbos: targetMacro="carbsG", targetG=carbos_restantes
+     - Para la fuente de proteína (si procede): targetMacro="proteinG", targetG=proteina_restante
+     - Para grasa (si procede): targetMacro="fatG", targetG=grasa_min_restante
+  3. Suma los macros de los gramos que te devuelva el backend para cada alimento.
+     Ajusta si algún macro queda muy desviado (>20g).
+  4. Presenta la propuesta con desglose por alimento y el total vs objetivo.
 
-SELECCIÓN DE ALIMENTOS — regla de prioridad:
-  - Si proteína restante < 20g: elige alimentos BAJOS en proteína (pasta, arroz, pan,
-    patata, fruta) para cubrir los carbos sin pasarte de proteína.
-  - Si proteína restante ≥ 20g: puedes incluir una fuente proteica + fuentes de carbos.
-  - Si el usuario nombra alimentos concretos, úsalos. Si no, elige tú según la prioridad.
+EJEMPLO — quedan 257g carbos, 50g proteína, 33g grasa, 1637 kcal:
+  → llama lookup_food_nutrition("pasta cocida", targetMacro="carbsG", targetG=200) → backend devuelve 770g
+  → llama lookup_food_nutrition("pechuga de pollo cocida", targetMacro="proteinG", targetG=50) → backend devuelve 160g
+  → revisa que el total de kcal se acerque a 1637; si sobran kcal, añade aceite o fruta
 
-Si el usuario pregunta por un alimento concreto (ej. "¿cuánto arroz?"), llama a
-calculate_meal_portions con solo ese alimento y los objetivos actuales.
+REGLA CRÍTICA: si proteína restante < 20g, NO incluyas pollo, huevos ni claras.
+Usa solo fuentes de carbos (pasta, arroz, pan, patata, fruta) para las kcal restantes.
 ════════════════════════════════════════════════════════════
 
 PERFIL:
@@ -652,127 +640,45 @@ export const advisorRoutes: FastifyPluginAsync = async (app) => {
       for (const toolCall of assistantMessage.tool_calls) {
         if (!("function" in toolCall)) continue;
 
-        // ── 5a. calculate_meal_portions: cálculo matemático en el backend ──────
-        if (toolCall.function.name === "calculate_meal_portions") {
+        // ── 5a. lookup_food_nutrition: consulta nutricional precisa ─────────────
+        if (toolCall.function.name === "lookup_food_nutrition") {
           const args = JSON.parse(toolCall.function.arguments) as {
-            foods: Array<{ name: string; fixedG?: number }>;
-            targetProteinG: number;
-            targetCarbsG: number;
-            targetFatMinG: number;
-            targetKcal: number;
+            foodName: string;
+            targetMacro?: "kcal" | "proteinG" | "carbsG" | "fatG";
+            targetG?: number;
           };
 
-          // Resolver qué alimentos están en la BD y cuáles no
-          const resolved = args.foods.map((f) => ({
-            name: f.name,
-            fixedG: f.fixedG,
-            dbEntry: findFood(f.name),
-          }));
+          const found = findFood(args.foodName);
 
-          // Alimentos con cantidad fija: calcular sus macros y restar del objetivo
-          let remainP = args.targetProteinG;
-          let remainC = args.targetCarbsG;
-          let remainF = args.targetFatMinG;
-          let remainKcal = args.targetKcal;
-
-          const resultLines: string[] = [];
-
-          for (const item of resolved) {
-            if (item.fixedG !== undefined && item.dbEntry) {
-              const factor = item.fixedG / 100;
-              const p = item.dbEntry.entry.proteinG * factor;
-              const c = item.dbEntry.entry.carbsG * factor;
-              const f = item.dbEntry.entry.fatG * factor;
-              const k = item.dbEntry.entry.kcal * factor;
-              remainP -= p;
-              remainC -= c;
-              remainF -= f;
-              remainKcal -= k;
-              resultLines.push(
-                `${item.name}: ${item.fixedG}g → ${Math.round(k)} kcal | P:${p.toFixed(1)}g C:${c.toFixed(1)}g G:${f.toFixed(1)}g (cantidad fija)`
-              );
-            }
-          }
-
-          // Alimentos sin cantidad fija: distribuir los macros restantes
-          // Estrategia: primero cubrir carbos con fuentes ricas en carbos, luego proteína, luego grasa
-          const freeItems = resolved.filter((i) => i.fixedG === undefined && i.dbEntry);
-          const unknownItems = resolved.filter((i) => !i.dbEntry);
-
-          // Ordenar: los más ricos en carbos primero, luego proteína, luego grasa
-          freeItems.sort((a, b) => {
-            const carbRatioA = (a.dbEntry!.entry.carbsG / (a.dbEntry!.entry.kcal || 1));
-            const carbRatioB = (b.dbEntry!.entry.carbsG / (b.dbEntry!.entry.kcal || 1));
-            return carbRatioB - carbRatioA;
-          });
-
-          // Asignar gramos a cada alimento libre usando los macros restantes
-          for (let i = 0; i < freeItems.length; i++) {
-            const item = freeItems[i];
-            if (!item.dbEntry) continue;
-            const e = item.dbEntry.entry;
-
-            let grams = 0;
-
-            if (i < freeItems.length - 1) {
-              // Para todos menos el último: asignar proporcional a su capacidad de cubrir carbos
-              // Si tiene carbos significativos, usarlo para cubrir carbos restantes
-              if (e.carbsG > 5 && remainC > 0) {
-                grams = Math.round((remainC / freeItems.length) / (e.carbsG / 100));
-              } else if (e.proteinG > 10 && remainP > 0) {
-                grams = Math.round(remainP / (e.proteinG / 100));
-              } else if (e.fatG > 5 && remainF > 0) {
-                grams = Math.round(remainF / (e.fatG / 100));
+          let content: string;
+          if (!found) {
+            content = `Alimento "${args.foodName}" no encontrado en la base de datos. Usa tu conocimiento nutricional para estimarlo.`;
+          } else {
+            const e = found.entry;
+            const lines = [
+              `Valores nutricionales de "${found.key}" por 100g:`,
+              `  kcal: ${e.kcal} | P: ${e.proteinG}g | C: ${e.carbsG}g | G: ${e.fatG}g`,
+            ];
+            if (args.targetMacro && args.targetG !== undefined) {
+              const per100 = e[args.targetMacro];
+              if (per100 > 0) {
+                const gramsNeeded = Math.round((args.targetG / per100) * 100 / 10) * 10;
+                const factor = gramsNeeded / 100;
+                lines.push(
+                  `Para cubrir ${args.targetG}${args.targetMacro === "kcal" ? " kcal" : "g"} de ${args.targetMacro}: necesitas ${gramsNeeded}g`,
+                  `  → ${gramsNeeded}g aportan: ${Math.round(e.kcal * factor)} kcal | P:${(e.proteinG * factor).toFixed(1)}g | C:${(e.carbsG * factor).toFixed(1)}g | G:${(e.fatG * factor).toFixed(1)}g`,
+                );
               } else {
-                grams = Math.round(remainKcal / freeItems.length / (e.kcal / 100));
+                lines.push(`Este alimento no tiene ${args.targetMacro} apreciable, no puedes usarlo para cubrir ese macro.`);
               }
-            } else {
-              // Para el último alimento: cubrir exactamente las kcal restantes
-              grams = remainKcal > 0 ? Math.max(0, Math.round(remainKcal / (e.kcal / 100))) : 0;
             }
-
-            // Redondear a múltiplos de 10g para mayor practicidad
-            grams = Math.round(grams / 10) * 10;
-            grams = Math.max(0, grams);
-
-            const factor = grams / 100;
-            const p = e.proteinG * factor;
-            const c = e.carbsG * factor;
-            const f = e.fatG * factor;
-            const k = e.kcal * factor;
-            remainP -= p;
-            remainC -= c;
-            remainF -= f;
-            remainKcal -= k;
-
-            resultLines.push(
-              `${item.name}: ${grams}g → ${Math.round(k)} kcal | P:${p.toFixed(1)}g C:${c.toFixed(1)}g G:${f.toFixed(1)}g`
-            );
+            content = lines.join("\n");
           }
-
-          for (const item of unknownItems) {
-            resultLines.push(`${item.name}: alimento no encontrado en la base de datos, estima tú los gramos`);
-          }
-
-          // Recalcular totales reales para el resumen
-          const totalP = args.targetProteinG - remainP;
-          const totalC = args.targetCarbsG - remainC;
-          const totalF = args.targetFatMinG - remainF;
-          const totalKcal = args.targetKcal - remainKcal;
-
-          const summary = [
-            "RESULTADO DEL CÁLCULO DE PORCIONES:",
-            ...resultLines,
-            `TOTAL PROPUESTA: ${Math.round(totalKcal)} kcal | P:${totalP.toFixed(1)}g | C:${totalC.toFixed(1)}g | G:${totalF.toFixed(1)}g`,
-            `OBJETIVO ERA:    ${args.targetKcal} kcal | P:${args.targetProteinG}g | C:${args.targetCarbsG}g | G:≥${args.targetFatMinG}g`,
-            `DESVIACIÓN:      ${Math.round(totalKcal - args.targetKcal)} kcal | P:${(totalP - args.targetProteinG).toFixed(1)}g | C:${(totalC - args.targetCarbsG).toFixed(1)}g`,
-            "Presenta estos resultados al usuario con el desglose por alimento y el resumen total vs objetivo.",
-          ].join("\n");
 
           toolResults.push({
             role: "tool",
             tool_call_id: toolCall.id,
-            content: summary,
+            content,
           });
 
           continue;
