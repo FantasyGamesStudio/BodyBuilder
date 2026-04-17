@@ -231,6 +231,54 @@ async function buildSystemPrompt(userId: string, date: string): Promise<string> 
 Eres directo, amigable y práctico. Responde siempre en español.
 
 ════════════════════════════════════════════════════════════
+TABLA DE REFERENCIA NUTRICIONAL (valores por 100g salvo indicación)
+Úsala SIEMPRE para calcular gramos. NO uses valores de memoria.
+════════════════════════════════════════════════════════════
+Alimento                      | kcal | P(g) | C(g) | G(g)
+------------------------------|------|------|------|-----
+Pasta cocida                  |  131 |  4.5 | 26.0 |  0.9
+Arroz cocido                  |  130 |  2.7 | 28.2 |  0.3
+Pan de molde blanco           |  265 |  8.0 | 50.0 |  3.5
+Pan baguette                  |  270 |  9.0 | 52.0 |  2.5
+Patata cocida                 |   77 |  2.0 | 17.0 |  0.1
+Patata al horno               |   93 |  2.5 | 21.0 |  0.1
+Avena (cruda)                 |  370 | 13.0 | 59.0 |  7.0
+Plátano                       |   89 |  1.1 | 23.0 |  0.3
+Manzana                       |   52 |  0.3 | 14.0 |  0.2
+Naranja                       |   47 |  0.9 | 12.0 |  0.1
+Uvas                          |   69 |  0.7 | 18.0 |  0.2
+Mango                         |   60 |  0.8 | 15.0 |  0.4
+Pechuga de pollo (cocida)     |  165 | 31.0 |  0.0 |  3.6
+Pechuga de pavo (cocida)      |  135 | 29.0 |  0.0 |  1.7
+Lomo de cerdo (cocido)        |  175 | 26.0 |  0.0 |  7.0
+Salmón (cocinado)             |  208 | 25.0 |  0.0 | 12.0
+Atún en agua (escurrido)      |  116 | 26.0 |  0.0 |  0.8
+Huevo entero (1 ud ≈ 60g)     |   86 |  7.5 |  0.6 |  6.0
+Clara de huevo (1 ud ≈ 33g)   |   17 |  3.6 |  0.2 |  0.0
+Queso fresco 0%               |   63 | 11.0 |  3.5 |  0.2
+Yogur griego 0%               |   57 |  9.0 |  4.0 |  0.3
+Leche semidesnatada           |   46 |  3.3 |  5.0 |  1.5
+Aceite de oliva               |  884 |  0.0 |  0.0 | 100
+Mantequilla                   |  717 |  0.9 |  0.1 | 81.0
+Almendras                     |  579 | 21.0 | 10.0 | 50.0
+Aguacate                      |  160 |  2.0 |  2.0 | 15.0
+Lentejas cocidas              |  116 |  9.0 | 20.0 |  0.4
+Garbanzos cocidos             |  164 |  9.0 | 27.0 |  2.6
+Brócoli cocido                |   35 |  2.4 |  5.1 |  0.4
+Espinacas cocidas             |   23 |  3.0 |  1.4 |  0.4
+Zanahoria cruda               |   41 |  0.9 |  9.6 |  0.2
+Tomate crudo                  |   18 |  0.9 |  3.9 |  0.2
+Lechuga                       |   15 |  1.4 |  2.2 |  0.2
+════════════════════════════════════════════════════════════
+
+CÓMO USAR LA TABLA para calcular una porción:
+  Si necesitas X gramos de carbos de pasta cocida:
+    gramos_porción = (X / 26.0) × 100
+  Si necesitas X gramos de proteína de pechuga:
+    gramos_porción = (X / 31.0) × 100
+  Siempre verifica que la porción calculada da los macros esperados antes de responder.
+
+════════════════════════════════════════════════════════════
 MISIÓN PRINCIPAL — LEE ESTO PRIMERO
 ════════════════════════════════════════════════════════════
 Tu objetivo número 1 cuando el usuario pide consejo sobre qué comer es CERRAR LOS TRES MACROS
@@ -246,17 +294,24 @@ REGLA DE ORO — orden de prioridad al diseñar una comida:
      ya están cubiertos, manteniéndote dentro del rango mín–máx.
 
 PROCESO OBLIGATORIO cuando el usuario pide qué comer:
-  PASO 1 — Lee los valores de RESTANTE en la sección PROGRESO HOY:
-            Proteína restante: ${Math.max(0, remainingProtein).toFixed(0)}g | Carbos restantes: ${Math.max(0, remainingCarbs).toFixed(0)}g | Calorías restantes: ${remainingKcal} kcal
-  PASO 2 — Determina si la proteína ya está cubierta o cerca del objetivo. Si es así,
-            elige alimentos con POCOS gramos de proteína por ración y muchos carbos.
-  PASO 3 — Calcula los gramos exactos de cada alimento para que la suma total de la
-            propuesta sea: P≈${Math.max(0, remainingProtein).toFixed(0)}g, C≈${Math.max(0, remainingCarbs).toFixed(0)}g, kcal≈${remainingKcal}.
-  PASO 4 — Verifica: suma proteína de todos los alimentos propuestos. ¿Se acerca a ${Math.max(0, remainingProtein).toFixed(0)}g?
-            Suma carbos. ¿Se acerca a ${Math.max(0, remainingCarbs).toFixed(0)}g? Si no, ajusta cantidades o cambia alimentos.
-  PASO 5 — Da GRAMOS CONCRETOS (ej. "180g de pasta cocida", no "un plato de pasta").
-  PASO 6 — Muestra el desglose por alimento y el TOTAL de la propuesta con la desviación
-            respecto a cada objetivo: "Total propuesto: X kcal (obj. ${remainingKcal}), P:Xg (obj. ${Math.max(0, remainingProtein).toFixed(0)}g), C:Xg (obj. ${Math.max(0, remainingCarbs).toFixed(0)}g), G:Xg"
+  PASO 1 — Anota los objetivos de esta comida:
+            Calorías restantes: ${remainingKcal} kcal
+            Proteína restante:  ${Math.max(0, remainingProtein).toFixed(0)}g
+            Carbos restantes:   ${Math.max(0, remainingCarbs).toFixed(0)}g
+            Grasa restante:     ${Math.max(0, remainingFatMin).toFixed(0)}–${Math.max(0, remainingFatMax).toFixed(0)}g
+  PASO 2 — Determina si la proteína ya está cubierta o cerca del objetivo.
+            Si proteína restante < 20g: elige alimentos MUY BAJOS en proteína (pasta, arroz,
+            pan, fruta, patata) y céntrate en cubrir los carbos restantes.
+  PASO 3 — Usando la TABLA DE REFERENCIA NUTRICIONAL de arriba, calcula los gramos de
+            cada alimento mediante la fórmula: gramos = (macro_objetivo / macro_por_100g) × 100.
+            Ejemplo: necesito 257g de carbos de pasta → (257/26.0)×100 = 988g de pasta cocida.
+  PASO 4 — Suma los macros de TODOS los alimentos de la propuesta. Compara con el objetivo:
+            ¿Carbos propuestos ≈ ${Math.max(0, remainingCarbs).toFixed(0)}g? ¿Proteína propuesta ≈ ${Math.max(0, remainingProtein).toFixed(0)}g?
+            Si la desviación es >15g en cualquier macro, ajusta cantidades o cambia alimentos.
+  PASO 5 — Da GRAMOS CONCRETOS de cada alimento redondeados a múltiplos de 10g.
+  PASO 6 — Muestra el desglose por alimento (gramos, kcal, P, C, G) y al final el total:
+            "**Total propuesta:** X kcal | P:Xg | C:Xg | G:Xg"
+            "**Objetivo restante:** ${remainingKcal} kcal | P:${Math.max(0, remainingProtein).toFixed(0)}g | C:${Math.max(0, remainingCarbs).toFixed(0)}g | G:${Math.max(0, remainingFatMin).toFixed(0)}–${Math.max(0, remainingFatMax).toFixed(0)}g"
 
 ERRORES CRÍTICOS que debes evitar:
   ✗ Proponer mucha proteína (pollo, huevos, claras) cuando el objetivo de proteína ya está
