@@ -48,7 +48,8 @@ export const ADVISOR_CHAT_TOOLS: ChatCompletionTool[] = [
         "Pasta de trigo y arroz blanco para COCINAR en casa: nombres **pasta seca cruda** y **arroz blanco crudo** con gramos SECOS; " +
         "para sobras ya hechas: **pasta cocida**, **arroz cocido** con gramos cocidos. " +
         "El backend calculará los macros reales desde la base de datos, comparará con RESTANTE y devolverá OK o REFINE. " +
-        "Si te responde REFINE, ajusta gramos o alimentos y llámala de nuevo (máx. 3 intentos).",
+        "También puede marcar REFINE si la composición del plato es mala (ej. muy poca proteína principal vs mucho carb refinado " +
+        "o demasiado aceite en ese contexto). Si te responde REFINE, reequilibra y llámala de nuevo (máx. 3 intentos).",
       parameters: {
         type: "object",
         required: ["foods"],

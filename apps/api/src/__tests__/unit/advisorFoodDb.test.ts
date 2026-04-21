@@ -25,4 +25,30 @@ describe("validateMealProposal", () => {
     expect(out).toContain("pasta seca cruda");
     expect(out).toMatch(/TOTAL PROPUESTO: 371 kcal/);
   });
+
+  it("REFINE si hay mucha pasta seca y muy poca pechuga (composición)", () => {
+    // RESTANTE alineado con esta propuesta para que el fallo sea solo de composición
+    const remaining = { kcal: 961, proteinG: 39, carbsG: 185, fatMinG: 4, fatMaxG: 15 };
+    const out = validateMealProposal(
+      [
+        { name: "pechuga de pollo cocida", grams: 20 },
+        { name: "pasta seca cruda", grams: 250 },
+      ],
+      remaining,
+    );
+    expect(out).toContain("VEREDICTO: REFINE");
+    expect(out).toMatch(/composición/i);
+  });
+
+  it("OK con pasta razonable y pechuga suficiente", () => {
+    const remaining = { kcal: 771, proteinG: 60, carbsG: 111, fatMinG: 5, fatMaxG: 12 };
+    const out = validateMealProposal(
+      [
+        { name: "pechuga de pollo cocida", grams: 130 },
+        { name: "pasta seca cruda", grams: 150 },
+      ],
+      remaining,
+    );
+    expect(out).toContain("VEREDICTO: OK");
+  });
 });

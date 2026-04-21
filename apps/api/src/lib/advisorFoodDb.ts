@@ -167,6 +167,61 @@ export function validateMealProposal(
     issues.push(`grasa ${(targetFMin - totalF).toFixed(0)}g por debajo del mínimo`);
   }
 
+  /** Composición del plato (no solo cuadrar números): evitar “20 g pollo + montón de pasta + aceite”. */
+  const MAIN_PROTEIN_KEYS = new Set([
+    "pechuga de pollo cocida",
+    "pechuga de pavo cocida",
+    "atun en agua escurrido",
+    "salmon cocinado",
+    "lomo de cerdo cocido",
+    "huevo entero",
+  ]);
+
+  let meatMainG = 0;
+  let legumeG = 0;
+  let pastaDryG = 0;
+  let pastaCookedG = 0;
+  let riceRawG = 0;
+  let riceCookedG = 0;
+  let oilG = 0;
+
+  for (const food of foods) {
+    const found = findFood(food.name);
+    if (!found) continue;
+    const k = found.key;
+    const g = food.grams;
+    if (MAIN_PROTEIN_KEYS.has(k)) meatMainG += g;
+    if (k === "lentejas cocidas" || k === "garbanzos cocidos") legumeG += g;
+    if (k === "pasta seca cruda") pastaDryG += g;
+    if (k === "pasta cocida") pastaCookedG += g;
+    if (k === "arroz blanco crudo") riceRawG += g;
+    if (k === "arroz cocido") riceCookedG += g;
+    if (k === "aceite de oliva") oilG += g;
+  }
+
+  const carbHeavy =
+    pastaDryG >= 140
+    || pastaCookedG >= 320
+    || riceRawG >= 140
+    || riceCookedG >= 320;
+
+  const compositionIssues: string[] = [];
+  const legumeOk = legumeG >= 100;
+
+  if (carbHeavy && !legumeOk && meatMainG > 0 && meatMainG < 55) {
+    let msg =
+      "composición: muy poca proteína principal (carne/pescado/huevo) para tanto carbohidrato refinado; sube fuente proteica (~80–150 g pechuga/atún según RESTANTE) o baja pasta/arroz";
+    if (oilG >= 18) {
+      msg +=
+        "; además hay bastante aceite para ese reparto — reduce aceite (~10–15 g suele bastar para cocinar/aliñar) antes de cerrar";
+    }
+    compositionIssues.push(msg);
+  }
+
+  for (const c of compositionIssues) {
+    issues.push(c);
+  }
+
   const verdict = issues.length === 0 ? "OK" : "REFINE";
 
   const header = `VEREDICTO: ${verdict}`;
