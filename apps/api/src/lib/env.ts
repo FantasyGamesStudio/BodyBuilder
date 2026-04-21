@@ -18,7 +18,11 @@ export const env = {
   JWT_REFRESH_EXPIRES_DAYS: Number(process.env.JWT_REFRESH_EXPIRES_DAYS ?? "30"),
   MOCK_SUBSCRIPTION: process.env.MOCK_SUBSCRIPTION === "true",
   OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? "",
+  /** Whisper u otros servicios genéricos */
   OPENAI_MODEL: process.env.OPENAI_MODEL ?? "gpt-4o",
-  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "",
-  ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-5",
+  /**
+   * Chat del asesor (tools + texto). Por defecto gpt-4.1 (posterior a 4o; buena instrucción/tools).
+   * Alternativas según cuenta OpenAI: gpt-5.4-mini (coste), gpt-5.4 (máximo), gpt-4.1-mini.
+   */
+  OPENAI_ADVISOR_MODEL: process.env.OPENAI_ADVISOR_MODEL ?? "gpt-4.1",
 } as const;

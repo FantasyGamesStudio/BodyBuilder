@@ -1,6 +1,7 @@
-import { Camera, Mic, MicOff, Plus, Send, Star } from "lucide-react";
+import { Camera, Mic, MicOff, Send, Star } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { RecurringFavoriteCard } from "@/components/RecurringFavoriteAdd";
 import { advisorApi, type AdvisorAddedEntry, type AdvisorMessage, type RecurringFood } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -69,46 +70,6 @@ function MessageBubble({
         </div>
       )}
     </div>
-  );
-}
-
-// ─── Chip de alimento recurrente ─────────────────────────────────────────────
-
-function RecurringChip({
-  food,
-  date,
-  onAdded,
-}: {
-  food: RecurringFood;
-  date: string;
-  onAdded: () => void;
-}) {
-  const [adding, setAdding] = useState(false);
-
-  async function handleAdd() {
-    setAdding(true);
-    try {
-      await advisorApi.logRecurring(food.id, date);
-      onAdded();
-    } finally {
-      setAdding(false);
-    }
-  }
-
-  return (
-    <button
-      onClick={handleAdd}
-      disabled={adding}
-      className={cn(
-        "flex items-center gap-1.5 rounded-full border border-border/60 bg-card px-3 py-1.5",
-        "text-xs hover:border-primary/50 hover:bg-primary/5 transition-all whitespace-nowrap",
-        adding && "opacity-50",
-      )}
-    >
-      <Plus className="h-3 w-3 text-primary shrink-0" />
-      <span className="font-medium">{food.name}</span>
-      <span className="text-muted-foreground">{food.kcalPerServing} kcal</span>
-    </button>
   );
 }
 
@@ -349,7 +310,7 @@ export function AdvisorPage() {
             <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1.5">Añadir rápido</p>
             <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
               {recurring.map((r) => (
-                <RecurringChip key={r.id} food={r} date={date} onAdded={handleRecurringAdded} />
+                <RecurringFavoriteCard key={r.id} food={r} nutritionDate={date} onAdded={handleRecurringAdded} />
               ))}
             </div>
           </div>

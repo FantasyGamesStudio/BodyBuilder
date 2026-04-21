@@ -1,7 +1,8 @@
-import { Bot, Camera, ChevronLeft, Image, Mic, MicOff, PlusCircle, Send, Star, Trash2, X } from "lucide-react";
+import { Bot, Camera, ChevronLeft, Image, Mic, MicOff, Send, Star, Trash2, X } from "lucide-react";
 import { compressImage } from "@/lib/image";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
+import { RecurringFavoriteRow } from "@/components/RecurringFavoriteAdd";
 import { advisorApi, mealsApi, type MealEntry, type RecurringFood } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -31,7 +32,6 @@ export function LogMealPage() {
 
   // ── Favoritos de este slot ────────────────────────────────────────────────
   const [recurring, setRecurring] = useState<RecurringFood[]>([]);
-  const [addingId, setAddingId] = useState<string | null>(null);
 
   // ── Asesor ────────────────────────────────────────────────────────────────
   const [text, setText] = useState("");
@@ -64,16 +64,6 @@ export function LogMealPage() {
   }
 
   // ── Favoritos ─────────────────────────────────────────────────────────────
-  async function handleAddRecurring(food: RecurringFood) {
-    if (addingId) return;
-    setAddingId(food.id);
-    try {
-      await advisorApi.logRecurring(food.id, date, slot);
-      refreshEntries();
-    } catch { /* silent */ }
-    finally { setAddingId(null); }
-  }
-
   async function handleDeleteRecurring(id: string) {
     setRecurring((prev) => prev.filter((r) => r.id !== id));
     await advisorApi.deleteRecurring(id).catch(() => {
@@ -305,33 +295,19 @@ export function LogMealPage() {
                 {recurring.map((food) => (
                   <div
                     key={food.id}
-                    className={cn(
-                      "flex items-center rounded-xl border border-border/60 bg-card transition-all",
-                      addingId === food.id && "opacity-60",
-                    )}
+                    className="flex items-stretch rounded-xl border border-border/60 bg-card overflow-hidden"
                   >
-                    {/* Tap en la fila = añadir */}
+                    <RecurringFavoriteRow
+                      embedded
+                      food={food}
+                      nutritionDate={date}
+                      mealSlot={slot}
+                      onAdded={refreshEntries}
+                    />
                     <button
-                      onClick={() => handleAddRecurring(food)}
-                      disabled={!!addingId}
-                      className="flex items-center gap-3 min-w-0 flex-1 text-left px-4 py-3"
-                    >
-                      {addingId === food.id ? (
-                        <div className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-                      ) : (
-                        <PlusCircle className="h-4 w-4 shrink-0 text-primary/60" />
-                      )}
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">{food.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {food.kcalPerServing} kcal · P:{food.proteinG}g C:{food.carbsG}g G:{food.fatG}g
-                        </p>
-                      </div>
-                    </button>
-                    {/* Estrella = quitar de favoritos */}
-                    <button
+                      type="button"
                       onClick={() => handleDeleteRecurring(food.id)}
-                      className="pr-4 pl-2 py-3 text-yellow-400 hover:text-muted-foreground transition-colors shrink-0"
+                      className="shrink-0 px-3 flex items-center justify-center text-yellow-400 hover:bg-muted/30 transition-colors border-l border-border/50"
                       title="Quitar de favoritos"
                     >
                       <Star className="h-4 w-4 fill-current" />

@@ -1,12 +1,22 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { and, desc, eq, gte, sql } from "drizzle-orm";
 import type { FastifyPluginAsync } from "fastify";
 import OpenAI, { toFile } from "openai";
+import type { ChatCompletionAssistantMessageParam, ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import { z } from "zod";
 import { db, schema } from "../db/index.js";
+import {
+  assistantResponseHasConcreteQuantities,
+  isValidateMealOkResult,
+  MEAL_QUANTITIES_NUDGE_MESSAGE,
+  userWantsQuantifiedMealAdvice,
+} from "../lib/advisorQuantityEnforcement.js";
+import { validateMealProposal } from "../lib/advisorFoodDb.js";
+import { ADVISOR_CHAT_TOOLS } from "../lib/advisorOpenAiTools.js";
+import { toneGuardAdvisorReply } from "../lib/advisorToneGuard.js";
 import { env } from "../lib/env.js";
+import { normalizeEntryToReferenceGrams, scaleRecurringToLoggedQuantity } from "../lib/recurringFood.js";
 
-// ─── OpenAI client (solo para Whisper / transcripción de audio) ───────────────
+// ─── OpenAI client (Whisper + chat del asesor con tools) ───────────────────────
 
 let _openai: OpenAI | null = null;
 function getOpenAI(): OpenAI {
@@ -16,242 +26,6 @@ function getOpenAI(): OpenAI {
   }
   return _openai;
 }
-
-// ─── Anthropic client (chat principal del asesor, con Claude Sonnet 4.5) ──────
-
-let _anthropic: Anthropic | null = null;
-function getAnthropic(): Anthropic {
-  if (!_anthropic) {
-    if (!env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY not set");
-    _anthropic = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
-  }
-  return _anthropic;
-}
-
-// ─── Base de datos nutricional de referencia (por 100g salvo indicación) ──────
-
-type FoodEntry = { kcal: number; proteinG: number; carbsG: number; fatG: number };
-
-const FOOD_DB: Record<string, FoodEntry> = {
-  "pasta cocida":             { kcal: 131, proteinG: 4.5,  carbsG: 26.0, fatG: 0.9 },
-  "arroz cocido":             { kcal: 130, proteinG: 2.7,  carbsG: 28.2, fatG: 0.3 },
-  "pan de molde blanco":      { kcal: 265, proteinG: 8.0,  carbsG: 50.0, fatG: 3.5 },
-  "pan baguette":             { kcal: 270, proteinG: 9.0,  carbsG: 52.0, fatG: 2.5 },
-  "pan integral":             { kcal: 247, proteinG: 9.0,  carbsG: 45.0, fatG: 3.5 },
-  "patata cocida":            { kcal:  77, proteinG: 2.0,  carbsG: 17.0, fatG: 0.1 },
-  "patata al horno":          { kcal:  93, proteinG: 2.5,  carbsG: 21.0, fatG: 0.1 },
-  "avena cruda":              { kcal: 370, proteinG: 13.0, carbsG: 59.0, fatG: 7.0 },
-  "platano":                  { kcal:  89, proteinG: 1.1,  carbsG: 23.0, fatG: 0.3 },
-  "manzana":                  { kcal:  52, proteinG: 0.3,  carbsG: 14.0, fatG: 0.2 },
-  "naranja":                  { kcal:  47, proteinG: 0.9,  carbsG: 12.0, fatG: 0.1 },
-  "uvas":                     { kcal:  69, proteinG: 0.7,  carbsG: 18.0, fatG: 0.2 },
-  "mango":                    { kcal:  60, proteinG: 0.8,  carbsG: 15.0, fatG: 0.4 },
-  "pera":                     { kcal:  57, proteinG: 0.4,  carbsG: 15.0, fatG: 0.1 },
-  "pechuga de pollo cocida":  { kcal: 165, proteinG: 31.0, carbsG:  0.0, fatG: 3.6 },
-  "pechuga de pavo cocida":   { kcal: 135, proteinG: 29.0, carbsG:  0.0, fatG: 1.7 },
-  "lomo de cerdo cocido":     { kcal: 175, proteinG: 26.0, carbsG:  0.0, fatG: 7.0 },
-  "salmon cocinado":          { kcal: 208, proteinG: 25.0, carbsG:  0.0, fatG: 12.0 },
-  "atun en agua escurrido":   { kcal: 116, proteinG: 26.0, carbsG:  0.0, fatG: 0.8 },
-  "huevo entero":             { kcal: 143, proteinG: 12.5, carbsG:  1.0, fatG: 10.0 },
-  "clara de huevo":           { kcal:  52, proteinG: 10.9, carbsG:  0.7, fatG: 0.2 },
-  "queso fresco 0%":          { kcal:  63, proteinG: 11.0, carbsG:  3.5, fatG: 0.2 },
-  "yogur griego 0%":          { kcal:  57, proteinG: 9.0,  carbsG:  4.0, fatG: 0.3 },
-  "leche semidesnatada":      { kcal:  46, proteinG: 3.3,  carbsG:  5.0, fatG: 1.5 },
-  "aceite de oliva":          { kcal: 884, proteinG: 0.0,  carbsG:  0.0, fatG: 100.0 },
-  "mantequilla":              { kcal: 717, proteinG: 0.9,  carbsG:  0.1, fatG: 81.0 },
-  "almendras":                { kcal: 579, proteinG: 21.0, carbsG: 10.0, fatG: 50.0 },
-  "aguacate":                 { kcal: 160, proteinG: 2.0,  carbsG:  2.0, fatG: 15.0 },
-  "lentejas cocidas":         { kcal: 116, proteinG: 9.0,  carbsG: 20.0, fatG: 0.4 },
-  "garbanzos cocidos":        { kcal: 164, proteinG: 9.0,  carbsG: 27.0, fatG: 2.6 },
-  "brocoli cocido":           { kcal:  35, proteinG: 2.4,  carbsG:  5.1, fatG: 0.4 },
-  "espinacas cocidas":        { kcal:  23, proteinG: 3.0,  carbsG:  1.4, fatG: 0.4 },
-  "zanahoria cruda":          { kcal:  41, proteinG: 0.9,  carbsG:  9.6, fatG: 0.2 },
-  "tomate crudo":             { kcal:  18, proteinG: 0.9,  carbsG:  3.9, fatG: 0.2 },
-  "lechuga":                  { kcal:  15, proteinG: 1.4,  carbsG:  2.2, fatG: 0.2 },
-};
-
-/** Busca el alimento más parecido en FOOD_DB por similitud de nombre (lowercase, sin tildes). */
-function normalizeFoodName(name: string): string {
-  return name.toLowerCase()
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9 ]/g, "")
-    .trim();
-}
-
-function findFood(name: string): { key: string; entry: FoodEntry } | null {
-  const normalized = normalizeFoodName(name);
-  // Búsqueda exacta primero
-  for (const [key, entry] of Object.entries(FOOD_DB)) {
-    if (normalizeFoodName(key) === normalized) return { key, entry };
-  }
-  // Búsqueda por contención
-  for (const [key, entry] of Object.entries(FOOD_DB)) {
-    const nk = normalizeFoodName(key);
-    if (normalized.includes(nk) || nk.includes(normalized)) return { key, entry };
-  }
-  return null;
-}
-
-/**
- * Valida una propuesta de comida contra los macros restantes del día.
- * Calcula los macros reales de los alimentos con la FOOD_DB, los suma,
- * y compara con los objetivos restantes. Devuelve un texto con el veredicto
- * (OK o REFINE con ajustes sugeridos) que el modelo interpreta.
- */
-function validateMealProposal(
-  foods: Array<{ name: string; grams: number }>,
-  remaining: { kcal: number; proteinG: number; carbsG: number; fatMinG: number; fatMaxG: number },
-): string {
-  if (!foods.length) {
-    return "ERROR: No se han pasado alimentos. Llama a validate_meal con una lista de {name, grams}.";
-  }
-
-  const lines: string[] = [];
-  const unknowns: string[] = [];
-  let totalKcal = 0;
-  let totalP = 0;
-  let totalC = 0;
-  let totalF = 0;
-
-  for (const food of foods) {
-    const found = findFood(food.name);
-    if (!found) {
-      unknowns.push(food.name);
-      lines.push(`  - ${food.name} (${food.grams}g): ⚠ alimento no en la base de datos`);
-      continue;
-    }
-    const factor = food.grams / 100;
-    const kcal = found.entry.kcal * factor;
-    const p = found.entry.proteinG * factor;
-    const c = found.entry.carbsG * factor;
-    const f = found.entry.fatG * factor;
-    totalKcal += kcal;
-    totalP += p;
-    totalC += c;
-    totalF += f;
-    lines.push(
-      `  - ${food.name} (${food.grams}g): ${Math.round(kcal)} kcal | P:${p.toFixed(1)}g C:${c.toFixed(1)}g G:${f.toFixed(1)}g`,
-    );
-  }
-
-  // Desviaciones contra el objetivo RESTANTE del día
-  const targetKcal = Math.max(0, remaining.kcal);
-  const targetP = Math.max(0, remaining.proteinG);
-  const targetC = Math.max(0, remaining.carbsG);
-  const targetFMin = Math.max(0, remaining.fatMinG);
-  const targetFMax = Math.max(0, remaining.fatMaxG);
-
-  const devKcal = totalKcal - targetKcal;
-  const devP = totalP - targetP;
-  const devC = totalC - targetC;
-
-  // Tolerancias (generosas para permitir redondeos y flexibilidad)
-  const TOL_KCAL = 120;  // ±120 kcal
-  const TOL_PROTEIN = 15; // ±15g
-  const TOL_CARBS = 25;   // ±25g
-  const FAT_OVER_LIMIT = 10; // gramos sobre el máximo permitido
-
-  const issues: string[] = [];
-  if (Math.abs(devKcal) > TOL_KCAL) {
-    issues.push(`kcal ${devKcal > 0 ? "sobran" : "faltan"} ${Math.abs(Math.round(devKcal))}`);
-  }
-  if (targetP > 5 && Math.abs(devP) > TOL_PROTEIN) {
-    issues.push(`proteína ${devP > 0 ? "sobran" : "faltan"} ${Math.abs(devP).toFixed(0)}g`);
-  }
-  if (targetC > 5 && Math.abs(devC) > TOL_CARBS) {
-    issues.push(`carbos ${devC > 0 ? "sobran" : "faltan"} ${Math.abs(devC).toFixed(0)}g`);
-  }
-  if (totalF > targetFMax + FAT_OVER_LIMIT) {
-    issues.push(`grasa ${(totalF - targetFMax).toFixed(0)}g por encima del máximo`);
-  }
-  if (totalF < targetFMin - FAT_OVER_LIMIT && targetFMin > 5) {
-    issues.push(`grasa ${(targetFMin - totalF).toFixed(0)}g por debajo del mínimo`);
-  }
-
-  const verdict = issues.length === 0 ? "OK" : "REFINE";
-
-  const header = `VEREDICTO: ${verdict}`;
-  const breakdown = `DESGLOSE POR ALIMENTO:\n${lines.join("\n")}`;
-  const totals = `TOTAL PROPUESTO: ${Math.round(totalKcal)} kcal | P:${totalP.toFixed(1)}g | C:${totalC.toFixed(1)}g | G:${totalF.toFixed(1)}g`;
-  const objective = `OBJETIVO RESTANTE: ${targetKcal} kcal | P:${targetP.toFixed(0)}g | C:${targetC.toFixed(0)}g | G:${targetFMin.toFixed(0)}-${targetFMax.toFixed(0)}g`;
-  const deviations = `DESVIACIÓN: kcal ${devKcal > 0 ? "+" : ""}${Math.round(devKcal)} | P ${devP > 0 ? "+" : ""}${devP.toFixed(0)}g | C ${devC > 0 ? "+" : ""}${devC.toFixed(0)}g | G ${totalF.toFixed(1)}g`;
-
-  const footer = verdict === "OK"
-    ? "La propuesta cierra los macros correctamente. Preséntala al usuario con este desglose."
-    : `Ajusta la propuesta: ${issues.join("; ")}. Cambia gramos o alimentos y llama a validate_meal otra vez.`;
-
-  const unknownsMsg = unknowns.length > 0
-    ? `\n⚠ Alimentos no reconocidos en la base de datos: ${unknowns.join(", ")}. Los macros totales pueden ser imprecisos; sustitúyelos por alimentos similares reconocidos (ej. pasta cocida, arroz cocido, pechuga de pollo cocida, aceite de oliva, platano, manzana, queso fresco 0%, yogur griego 0%, leche semidesnatada, aguacate, lentejas cocidas, garbanzos cocidos).`
-    : "";
-
-  return [header, breakdown, totals, objective, deviations, footer + unknownsMsg].join("\n");
-}
-
-// ─── Tool definitions (formato Anthropic) ─────────────────────────────────────
-
-const tools: Anthropic.Messages.Tool[] = [
-  {
-    name: "add_meal_entries",
-    description:
-      "Registra una o varias entradas de comida en el diario del usuario. " +
-      "Llama a esta función siempre que el usuario describa o muestre (foto) algo que comió, " +
-      "está comiendo o va a comer. Desglosa en entradas individuales (ej. bocadillo + café = 2 entradas).",
-    input_schema: {
-      type: "object",
-      required: ["entries"],
-      properties: {
-        entries: {
-          type: "array",
-          items: {
-            type: "object",
-            required: ["name", "mealSlot", "quantityG", "kcal", "proteinG", "fatG", "carbsG"],
-            properties: {
-              name: { type: "string", description: "Nombre del alimento (ej. 'Bocadillo de jamón serrano')" },
-              mealSlot: {
-                type: "string",
-                enum: ["breakfast", "lunch", "dinner", "snack", "other"],
-                description: "Momento del día. Infiere del contexto si no se indica.",
-              },
-              quantityG: { type: "number", description: "Cantidad en gramos (o ml para líquidos)" },
-              kcal: { type: "number", description: "Calorías totales estimadas" },
-              proteinG: { type: "number", description: "Proteínas en gramos" },
-              fatG: { type: "number", description: "Grasas en gramos" },
-              carbsG: { type: "number", description: "Carbohidratos en gramos" },
-            },
-          },
-        },
-      },
-    },
-  },
-  {
-    name: "validate_meal",
-    description:
-      "Valida una propuesta de comida contra los objetivos de macros restantes del día. " +
-      "Úsala SIEMPRE ANTES de presentar al usuario una propuesta de comida con gramos concretos. " +
-      "Pasa los alimentos con los gramos que propones y el backend calculará los macros reales " +
-      "usando una base de datos nutricional precisa, comparará con los objetivos pendientes del día, " +
-      "y te dirá si la propuesta cierra los macros (OK) o si necesitas ajustar (REFINE con detalles). " +
-      "Si te responde REFINE, ajusta los gramos o cambia alimentos y llámala de nuevo. Máximo 3 intentos.",
-    input_schema: {
-      type: "object",
-      required: ["foods"],
-      properties: {
-        foods: {
-          type: "array",
-          description: "Lista de alimentos propuestos para esta comida, con los gramos exactos que quieres proponer.",
-          items: {
-            type: "object",
-            required: ["name", "grams"],
-            properties: {
-              name: { type: "string", description: "Nombre del alimento en español sencillo (ej. 'pasta cocida', 'pechuga de pollo cocida', 'aceite de oliva')." },
-              grams: { type: "number", description: "Cantidad en gramos (redondeada a múltiplos de 5 o 10)." },
-            },
-          },
-        },
-      },
-    },
-  },
-];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -276,7 +50,7 @@ const GOAL_MODE_ADVICE: Record<string, string> = {
     "El superávit se reparte PRIORITARIAMENTE en carbohidratos (tras cubrir proteína y grasa mínima). " +
     "En días de entreno: más carbos para rendimiento y recuperación. " +
     "Cuando el usuario pregunte cuánto comer, dale GRAMOS CONCRETOS de cada alimento basándote en los macros restantes, " +
-    "redondeando a porciones prácticas (ej. 150g de arroz cocido, no 147g). " +
+    "redondeando a porciones prácticas (ej. 90g arroz blanco crudo / seco, no 87g). " +
     "Si hoy entrena, sugiere que la comida pre-entreno sea rica en carbos de absorción media y la post-entreno incluya proteína + carbos.",
   mantenimiento:
     "Mantener peso estable con banda estrecha. " +
@@ -467,7 +241,7 @@ async function computeDailyState(userId: string, date: string): Promise<DailySta
 }
 
 /** System prompt simplificado. El modelo decide qué comer, validate_meal valida los números. */
-function buildSystemPrompt(state: DailyState, date: string): string {
+function buildSystemPrompt(state: DailyState, date: string, advisorModelId: string): string {
   const r = state.remaining;
   const entriesList = state.todayEntries.length > 0
     ? state.todayEntries.map((e) => `  - ${e.mealSlot}: ${e.name} (${e.kcal} kcal)`).join("\n")
@@ -498,6 +272,34 @@ CONSUMIDO HOY
 ▶ RESTANTE (cubre esto con las comidas que queden hoy)
   ${r.kcal} kcal | P:${Math.max(0, r.proteinG).toFixed(0)}g C:${Math.max(0, r.carbsG).toFixed(0)}g G:${Math.max(0, r.fatMinG).toFixed(0)}-${Math.max(0, r.fatMaxG).toFixed(0)}g
 
+────────────────────────────────────────────────
+DATOS DEL SERVIDOR (no contradecir ni pedirlos de nuevo al usuario)
+────────────────────────────────────────────────
+- Modelo OpenAI usado en esta petición: **${advisorModelId}**. Si preguntan qué LLM o modelo de IA eres,
+  di que eres el asesor de BodyBuilder y que esta conversación usa el modelo **${advisorModelId}** vía API OpenAI.
+  No respondas solo "GPT-4" ni otra familia genérica si no coincide con lo anterior.
+- OBJETIVO DIARIO, CONSUMIDO HOY y RESTANTE están ya calculados arriba desde la base de datos actual.
+  NO pidas al usuario que te dicte cuántas kcal o cuántos gramos de proteína/carbohidratos/grasa le faltan para el día.
+  Usa exclusivamente los números de este mensaje para asesorar.
+  Si el usuario dice que ha cambiado objetivos, los valores de esta conversación ya incorporan el conjunto activo
+  en el servidor en el momento de esta petición; no pidas que "los confirme por chat" salvo discrepancia evidente.
+
+────────────────────────────────────────────────
+GRAMAJE: PASTA Y ARROZ EN SECO (prioridad para cocinar en casa)
+────────────────────────────────────────────────
+- Para comidas que el usuario va a cocinar aún: propón **gramos SECOS** de pasta de trigo y arroz blanco (fácil de pesar antes de hervir).
+- En validate_meal usa claves exactas con gramos secos: **pasta seca cruda**, **arroz blanco crudo**.
+- Para sobras o platos ya terminados usa **pasta cocida**, **arroz cocido** con gramos cocidos.
+- En el texto al usuario indica explícito **(seco)** o **gramos antes de cocinar** junto a pasta/arroz cuando propongas hacerlos.
+
+────────────────────────────────────────────────
+RESTANTE DE PROTEÍNA YA CUBIERTO (~0 g o muy bajo)
+────────────────────────────────────────────────
+- Si RESTANTE de proteína es 0 g o casi y la propuesta lleva huevo/queso/carne, no califiques el día como “cierre perfecto/excelente”
+  sin explicar el **trade-off** (vas a sumar proteína respecto al objetivo mínimo del día).
+- Usa los números del validate_meal: di aproximadamente cuántos gramos de proteína **extra** supone esa comida.
+- No trivialices un exceso grande (p. ej. +20–30 g) como “por el huevo es poco”; en ese caso ofrece reducir porción o asumir el exceso con claridad.
+
 ENTRADAS YA REGISTRADAS HOY
 ${entriesList}
 
@@ -511,24 +313,47 @@ TUS DOS HERRAMIENTAS
    come ahora o va a comer. Registra cada alimento diferente que se toma por separado.
 
 2. validate_meal: úsala SIEMPRE antes de responder con una propuesta de gramos concretos.
-   Pasa los alimentos con los gramos que propones y el backend te devolverá:
-     - Los macros reales calculados contra una base de datos nutricional precisa.
-     - Una desviación respecto al objetivo restante del día.
-     - Un veredicto: OK (puedes presentar) o REFINE (ajusta y vuelve a validar).
+   Para pasta/arroz crudos a cocinar usa nombres **pasta seca cruda** y **arroz blanco crudo** (gramos SECOS).
+   El backend devolverá macros según la base de datos, desviación vs RESTANTE y OK o REFINE.
+
+────────────────────────────────────────────────
+SI NOMBRA UN PLATO O RECETA (prioridad sobre “optimizar números” en silencio)
+────────────────────────────────────────────────
+Si el usuario dice un plato concreto (ej. carbonara, tortilla de patatas, ensalada césar):
+- NO lo sustituyas por otro estilo distinto (ej. aglio e olio, pasta solo con aceite) sin
+  explicarlo y sin ofrecer antes el conflicto con RESTANTE.
+- En 1–2 frases explica el choque cuando aplique (ej. carbonara lleva huevo y queso → más
+  proteína cuando P ya está cubierta o sobraba poco margen).
+- Ofrece opciones claras, por ejemplo:
+  · la misma receta con cantidades más pequeñas para limitar proteína en exceso;
+  · la misma receta en porción normal y aceptar llevar proteína por encima ese día (dilo explícito);
+  · una variante del plato solo si el usuario da margen o preguntas “¿te vale…?”.
+- No inventes combinaciones solo para cerrar macros (ej. pasta + aceite + plátano como “cena tipo X”)
+  si el usuario pidió otra cosa: mejor carbos coherentes con el plato (más pasta seca cruda, pan con el plato)
+  o preguntas antes si puede añadir algo extra fuera del plato.
+- Si nombró solo el plato principal y **no** pidió postre o fruta aparte, **no añadas** postre/fruta solo
+  para cerrar carbos salvo que **preguntes antes** (“¿Te añado fruta?”) o puedas cerrar carbos con **más
+  pasta seca cruda** u otro componente del propio plato.
+Cuando solo pida “cerrar el día” o “qué ceno” sin nombrar plato, sí puedes proponer lo que mejor
+ encaje en RESTANTE usando la FOOD_DB.
 
 ────────────────────────────────────────────────
 CÓMO PROPONER UNA COMIDA
 ────────────────────────────────────────────────
 Cuando el usuario pida consejo sobre qué comer o cuánto comer:
-1. Piensa alimentos coherentes (3-4 como mucho). No propongas grandes cantidades de un
-   solo macro si ese objetivo ya está cubierto: si falta < 20g de proteína, NO añadas
-   pollo/huevos/claras; usa solo carbos (pasta, arroz, pan, patata, fruta) y un poco de grasa.
-2. Asigna gramos a cada alimento con tu intuición (ballpark).
+1. Si NO ha pedido un plato concreto: piensa alimentos coherentes (3-4 como mucho). Si un macro
+   ya está cubierto en RESTANTE, evita seguir cargando ese macro salvo para cuadrar algo mínimo:
+   ej. si falta poca proteína no añadas grandes dosis de pollo/huevo; usa carbos/grasa según falte.
+   Si SÍ nombró un plato concreto, sigue las reglas de la sección anterior antes que esta regla genérica.
+2. Asigna gramos (ballpark): pasta y arroz **a cocinar** → **pasta seca cruda** y **arroz blanco crudo**
+   con gramos secos; sobras o ya cocidos → pasta cocida / arroz cocido con gramos cocidos.
 3. Llama validate_meal para que el backend calcule los macros reales.
 4. Si te dice REFINE con desviaciones grandes, ajusta los gramos (o cambia un alimento)
    y llama a validate_meal de nuevo. Máximo 3 intentos.
 5. Cuando tengas OK, presenta la propuesta al usuario con desglose por alimento y el
    total vs objetivo restante, en formato markdown.
+   Copia los números EXACTAMENTE del resultado de validate_meal (DESGLOSE y TOTAL PROPUESTO);
+   no recalcules kcal ni macros mentalmente.
 
 Si el usuario te propone una cantidad distinta a la que sugeriste, NO digas solo "perfecto".
 Evalúa si encaja con su objetivo del día; si se pasa o se queda corto, adviértelo y sugiere
@@ -538,7 +363,13 @@ cómo compensar en la siguiente comida.
 ESTILO
 ────────────────────────────────────────────────
 - Breve: 2-3 frases para confirmaciones, más detallado cuando asesores con gramos concretos.
-- Usa markdown: **negrita** para énfasis, - para listas.
+- Markdown (obligatorio para que el cliente lo renderice bien):
+  · Encabezados # ## ### solo en su propia línea; deja una línea en blanco antes del encabezado.
+  · No pongas ### dentro de una viñeta (mal: "• ### Desglose"); bien: línea con "### Desglose" y luego la lista.
+  · Listas con guión y espacio: "- ítem". No uses la viñeta • salvo que sea texto dentro de un párrafo.
+  · **negrita** para énfasis.
+- Fruta fresca (plátano, manzana, pera…): indica siempre gramos del desglose Y una cantidad orientativa
+  en unidades (ej. "plátano (~170 g, ≈1 mediano)" o "2 medianos ~240 g"). No des solo gramos sin referencia.
 - Confirmaciones: solo di el alimento, no repitas los macros que acabas de registrar.`;
 }
 
@@ -693,7 +524,6 @@ export const advisorRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const openai = getOpenAI();
-    const anthropic = getAnthropic();
     let userText = text ?? "";
 
     // ── 1. Transcribir audio con Whisper (OpenAI) si se envió ─────────────────
@@ -716,80 +546,130 @@ export const advisorRoutes: FastifyPluginAsync = async (app) => {
       ),
       orderBy: (m, { asc }) => [asc(m.createdAt)],
     });
-    const state = await computeDailyState(userId, date);
-    const systemPrompt = buildSystemPrompt(state, date);
+    let state = await computeDailyState(userId, date);
+    let systemPrompt = buildSystemPrompt(state, date, env.OPENAI_ADVISOR_MODEL);
 
-    // ── 3. Construir mensajes iniciales (formato Anthropic) ───────────────────
-    const messages: Anthropic.Messages.MessageParam[] = history.map((m) => ({
+    // ── 3. Construir thread (OpenAI Chat Completions) ──────────────────────────
+    const thread: ChatCompletionMessageParam[] = history.map((m) => ({
       role: m.role as "user" | "assistant",
       content: m.content,
     }));
 
-    // Mensaje del usuario actual: texto + imágenes si las hay
-    const userContent: Anthropic.Messages.ContentBlockParam[] = [];
     const textPart = userText || (imageList.length > 0 ? "Analiza estos alimentos y regístralos en mi diario." : "");
-    if (textPart) userContent.push({ type: "text", text: textPart });
-    for (const img of imageList) {
-      const mediaType = (img.mimeType === "image/png" || img.mimeType === "image/gif" || img.mimeType === "image/webp")
-        ? img.mimeType
-        : "image/jpeg";
-      userContent.push({
-        type: "image",
-        source: { type: "base64", media_type: mediaType, data: img.imageBase64 },
+    if (imageList.length === 0) {
+      thread.push({ role: "user", content: textPart });
+    } else {
+      thread.push({
+        role: "user",
+        content: [
+          { type: "text", text: textPart },
+          ...imageList.map((img) => {
+            const mime =
+              img.mimeType === "image/png" || img.mimeType === "image/gif" || img.mimeType === "image/webp"
+                ? img.mimeType
+                : "image/jpeg";
+            return {
+              type: "image_url" as const,
+              image_url: { url: `data:${mime};base64,${img.imageBase64}` },
+            };
+          }),
+        ],
       });
     }
-    messages.push({ role: "user", content: userContent });
 
-    // ── 4. Agentic loop: llamar al modelo hasta que no haya más tool uses ─────
+    // ── 4. Agentic loop: chat + tool calls ───────────────────────────────────
     const addedEntries: Array<{
       id: string; name: string; mealSlot: string; quantityG: number;
       kcal: number; proteinG: number; fatG: number; carbsG: number;
     }> = [];
 
     let finalText = "";
-    const MAX_ITERATIONS = 6;
+    let validateMealOkThisRequest = false;
+    const MAX_ITERATIONS = 10;
+
+    const parseToolArgs = (raw: string): Record<string, unknown> => {
+      try {
+        return JSON.parse(raw || "{}") as Record<string, unknown>;
+      } catch {
+        return {};
+      }
+    };
 
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
-      let response: Anthropic.Messages.Message;
+      let completion;
       try {
-        response = await anthropic.messages.create({
-          model: env.ANTHROPIC_MODEL,
-          max_tokens: 2048,
-          system: systemPrompt,
-          messages,
-          tools,
+        completion = await openai.chat.completions.create({
+          model: env.OPENAI_ADVISOR_MODEL,
+          messages: [{ role: "system", content: systemPrompt }, ...thread],
+          tools: ADVISOR_CHAT_TOOLS,
+          tool_choice: "auto",
+          max_completion_tokens: 2048,
         });
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        app.log.error({ err }, "Anthropic chat error");
+        app.log.error({ err }, "OpenAI advisor chat error");
         return reply.status(502).send({ error: `Error al contactar con el modelo de IA: ${msg}` });
       }
 
-      const toolUses = response.content.filter((b): b is Anthropic.Messages.ToolUseBlock => b.type === "tool_use");
-      const textBlocks = response.content.filter((b): b is Anthropic.Messages.TextBlock => b.type === "text");
-
-      // Si no hay tool uses, es la respuesta final
-      if (toolUses.length === 0 || response.stop_reason === "end_turn") {
-        finalText = textBlocks.map((t) => t.text).join("\n").trim();
-        if (finalText || toolUses.length === 0) break;
+      const msg = completion.choices[0]?.message;
+      if (!msg) {
+        return reply.status(502).send({ error: "Respuesta vacía del modelo de IA" });
       }
 
-      // Añadir el turno del asistente
-      messages.push({ role: "assistant", content: response.content });
+      const toolCalls = msg.tool_calls;
 
-      // Procesar cada tool use y construir los tool_results
-      const toolResults: Anthropic.Messages.ToolResultBlockParam[] = [];
+      if (!toolCalls?.length) {
+        finalText = (msg.content ?? "").trim();
 
-      for (const tu of toolUses) {
-        if (tu.name === "add_meal_entries") {
-          const args = tu.input as {
-            entries: Array<{
-              name: string; mealSlot: string; quantityG: number;
-              kcal: number; proteinG: number; fatG: number; carbsG: number;
-            }>;
+        const mustRetryValidate =
+          userWantsQuantifiedMealAdvice(userText) &&
+          assistantResponseHasConcreteQuantities(finalText) &&
+          !validateMealOkThisRequest;
+
+        if (mustRetryValidate && iteration < MAX_ITERATIONS - 1) {
+          const assistantRetry: ChatCompletionAssistantMessageParam = {
+            role: "assistant",
+            content: msg.content ?? "",
           };
+          thread.push(assistantRetry);
+          thread.push({ role: "user", content: MEAL_QUANTITIES_NUDGE_MESSAGE });
+          continue;
+        }
+
+        if (mustRetryValidate && iteration >= MAX_ITERATIONS - 1) {
+          finalText +=
+            "\n\n_(Nota: las cantidades de esta respuesta no pasaron por validación automática contra la base nutricional; comprueba los números.)_";
+        }
+
+        break;
+      }
+
+      const assistantToolMsg: ChatCompletionAssistantMessageParam = {
+        role: "assistant",
+        content: msg.content,
+        tool_calls: msg.tool_calls,
+      };
+      thread.push(assistantToolMsg);
+
+      for (const tc of toolCalls) {
+        if (tc.type !== "function") continue;
+        const fn = tc.function;
+        const args = parseToolArgs(fn.arguments ?? "");
+
+        if (fn.name === "add_meal_entries") {
+          const entries = args.entries as
+            | Array<{
+                name: string;
+                mealSlot: string;
+                quantityG: number;
+                kcal: number;
+                proteinG: number;
+                fatG: number;
+                carbsG: number;
+              }>
+            | undefined;
           const insertedNames: string[] = [];
-          for (const entry of args.entries ?? []) {
+          for (const entry of entries ?? []) {
             const [row] = await db.insert(schema.mealLogEntries).values({
               userId,
               foodId: null,
@@ -814,37 +694,37 @@ export const advisorRoutes: FastifyPluginAsync = async (app) => {
             });
             insertedNames.push(`${entry.name} (${SLOT_ES[entry.mealSlot] ?? entry.mealSlot}, ${Math.round(entry.kcal)} kcal)`);
           }
-          toolResults.push({
-            type: "tool_result",
-            tool_use_id: tu.id,
-            content: insertedNames.length > 0
-              ? `Entradas registradas correctamente: ${insertedNames.join(", ")}`
-              : "No se registró ninguna entrada (array vacío).",
+          thread.push({
+            role: "tool",
+            tool_call_id: tc.id,
+            content:
+              insertedNames.length > 0
+                ? `Entradas registradas correctamente: ${insertedNames.join(", ")}`
+                : "No se registró ninguna entrada (array vacío).",
           });
+          state = await computeDailyState(userId, date);
+          systemPrompt = buildSystemPrompt(state, date, env.OPENAI_ADVISOR_MODEL);
           continue;
         }
 
-        if (tu.name === "validate_meal") {
-          const args = tu.input as { foods: Array<{ name: string; grams: number }> };
-          const result = validateMealProposal(args.foods ?? [], state.remaining);
-          toolResults.push({
-            type: "tool_result",
-            tool_use_id: tu.id,
+        if (fn.name === "validate_meal") {
+          const foods = args.foods as Array<{ name: string; grams: number }> | undefined;
+          const result = validateMealProposal(foods ?? [], state.remaining);
+          if (isValidateMealOkResult(result)) validateMealOkThisRequest = true;
+          thread.push({
+            role: "tool",
+            tool_call_id: tc.id,
             content: result,
           });
           continue;
         }
 
-        // Tool desconocida — devolver error
-        toolResults.push({
-          type: "tool_result",
-          tool_use_id: tu.id,
-          content: `Tool desconocida: ${tu.name}`,
-          is_error: true,
+        thread.push({
+          role: "tool",
+          tool_call_id: tc.id,
+          content: `Tool desconocida: ${fn.name}`,
         });
       }
-
-      messages.push({ role: "user", content: toolResults });
     }
 
     // Fallback si no hubo respuesta textual
@@ -853,6 +733,8 @@ export const advisorRoutes: FastifyPluginAsync = async (app) => {
         ? `Registrado: ${addedEntries.map((e) => e.name).join(", ")}.`
         : "No he podido generar una respuesta. Prueba a reformular la pregunta.";
     }
+
+    finalText = toneGuardAdvisorReply(finalText, state.remaining.proteinG);
 
     // ── 5. Guardar mensajes en BD ─────────────────────────────────────────────
     await db.insert(schema.advisorMessages).values([
@@ -963,9 +845,20 @@ export const advisorRoutes: FastifyPluginAsync = async (app) => {
       ),
     });
 
+    const norm = normalizeEntryToReferenceGrams(entry);
+
     if (existing) {
       await db.update(schema.recurringFoods)
-        .set({ timesUsed: existing.timesUsed + 1, lastUsedAt: new Date() })
+        .set({
+          timesUsed: existing.timesUsed + 1,
+          lastUsedAt: new Date(),
+          mealSlot: entry.mealSlot,
+          kcalPerServing: norm.kcalPerServing,
+          proteinG: norm.proteinG,
+          fatG: norm.fatG,
+          carbsG: norm.carbsG,
+          quantityG: norm.quantityG,
+        })
         .where(eq(schema.recurringFoods.id, existing.id));
       return reply.status(201).send({ id: existing.id });
     }
@@ -973,11 +866,11 @@ export const advisorRoutes: FastifyPluginAsync = async (app) => {
     const [created] = await db.insert(schema.recurringFoods).values({
       userId,
       name,
-      kcalPerServing: entry.kcal,
-      proteinG: entry.proteinG,
-      fatG: entry.fatG,
-      carbsG: entry.carbsG,
-      quantityG: entry.quantityG,
+      kcalPerServing: norm.kcalPerServing,
+      proteinG: norm.proteinG,
+      fatG: norm.fatG,
+      carbsG: norm.carbsG,
+      quantityG: norm.quantityG,
       mealSlot: entry.mealSlot,
     }).returning({ id: schema.recurringFoods.id });
 
@@ -1026,6 +919,8 @@ export const advisorRoutes: FastifyPluginAsync = async (app) => {
         properties: {
           nutritionDate: { type: "string" },
           mealSlot: { type: "string" },
+          /** Gramos a registrar; si no se envía, se usa la cantidad de referencia del favorito (p. ej. 100). */
+          quantityG: { type: "number" },
         },
       },
       response: { 201: { type: "object", properties: { id: { type: "string" } } } },
@@ -1034,12 +929,28 @@ export const advisorRoutes: FastifyPluginAsync = async (app) => {
   }, async (req, reply) => {
     const userId = req.user.sub;
     const { id } = req.params as { id: string };
-    const { nutritionDate, mealSlot } = req.body as { nutritionDate: string; mealSlot?: string };
+    const { nutritionDate, mealSlot, quantityG: bodyQty } = req.body as {
+      nutritionDate: string;
+      mealSlot?: string;
+      quantityG?: number;
+    };
 
     const recurring = await db.query.recurringFoods.findFirst({
       where: and(eq(schema.recurringFoods.id, id), eq(schema.recurringFoods.userId, userId)),
     });
     if (!recurring) return reply.status(404).send({ error: "not_found" });
+
+    const requestedG =
+      bodyQty !== undefined && bodyQty !== null && Number.isFinite(bodyQty)
+        ? bodyQty
+        : Number(recurring.quantityG);
+
+    let scaled;
+    try {
+      scaled = scaleRecurringToLoggedQuantity(recurring, requestedG);
+    } catch {
+      return reply.status(400).send({ error: "invalid_quantity" });
+    }
 
     const [entry] = await db.insert(schema.mealLogEntries).values({
       userId,
@@ -1047,11 +958,11 @@ export const advisorRoutes: FastifyPluginAsync = async (app) => {
       foodName: recurring.name,
       nutritionDate,
       mealSlot: mealSlot ?? recurring.mealSlot,
-      quantityG: recurring.quantityG,
-      kcal: recurring.kcalPerServing,
-      proteinG: recurring.proteinG,
-      fatG: recurring.fatG,
-      carbsG: recurring.carbsG,
+      quantityG: scaled.quantityG,
+      kcal: scaled.kcal,
+      proteinG: scaled.proteinG,
+      fatG: scaled.fatG,
+      carbsG: scaled.carbsG,
     }).returning({ id: schema.mealLogEntries.id });
 
     await db.update(schema.recurringFoods)

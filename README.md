@@ -17,7 +17,7 @@ Producto: seguimiento nutricional, progreso físico, IA (comidas foto/audio), so
 ## Arranque rápido (API)
 
 1. `docker compose up -d` (requiere Docker instalado).
-2. `cp .env.example apps/api/.env` (o copia manual en Windows).
+2. `cp .env.example apps/api/.env` (o copia manual en Windows) y rellenar al menos `DATABASE_URL` y `OPENAI_API_KEY`. El asesor usa `OPENAI_ADVISOR_MODEL` (por defecto en código `gpt-4.1`; puedes poner `gpt-5.4-mini` u otro si tu cuenta lo permite).
 3. `cd apps/api && npm install && npm run db:migrate && npm run dev`.
 4. Probar: http://localhost:3000/health
 

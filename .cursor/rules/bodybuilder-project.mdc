@@ -12,7 +12,7 @@ alwaysApply: true
 
 ## Estado de implementación actual
 - **H1 completo**: auth, onboarding (TDEE Mifflin–St Jeor), meal slots, registro manual, workouts, nutrition targets.
-- **AI Advisor operativo** (adelanto de H2): asesor por texto/audio (Whisper)/imagen (GPT-4o vision), recurring foods, deferred deletion.
+- **AI Advisor operativo** (adelanto de H2): asesor por texto/audio (Whisper)/imagen (multimodal OpenAI según `OPENAI_ADVISOR_MODEL`), recurring foods, deferred deletion.
 - **Pendiente**: social, gamificación, evaluaciones, integración pasos, notificaciones push — ver `deferred_backlog.md`.
 
 ## Documentos de diseño (leer antes de decisiones de arquitectura)

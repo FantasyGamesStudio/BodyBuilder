@@ -200,6 +200,8 @@ export const advisorMessages = pgTable("advisor_messages", {
 /**
  * Alimentos frecuentes del usuario estimados por el asesor IA.
  * Se usan para re-añadir rápidamente en días posteriores.
+ * Cantidad de referencia (`quantity_g`) suele ser 100 g al guardar desde una entrada:
+ * los macros corresponden a esa referencia; al registrar se escala por gramos solicitados.
  */
 export const recurringFoods = pgTable("recurring_foods", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -208,7 +210,7 @@ export const recurringFoods = pgTable("recurring_foods", {
     .references(() => users.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   description: text("description"),
-  /** Macros por la porción habitual */
+  /** Kcal para exactamente `quantity_g` gramos (típ. por 100 g) */
   kcalPerServing: integer("kcal_per_serving").notNull(),
   proteinG: numeric("protein_g", { precision: 6, scale: 1 }).notNull(),
   fatG: numeric("fat_g", { precision: 6, scale: 1 }).notNull(),

@@ -376,8 +376,12 @@ export const advisorApi = {
   recurring: () => api.get<{ items: RecurringFood[] }>("/advisor/recurring"),
   markRecurring: (mealEntryId: string) =>
     api.post<{ id: string }>("/advisor/recurring", { mealEntryId }),
-  logRecurring: (id: string, nutritionDate: string, mealSlot?: string) =>
-    api.post<{ id: string }>(`/advisor/recurring/${id}/log`, { nutritionDate, mealSlot }),
+  logRecurring: (id: string, nutritionDate: string, mealSlot?: string, quantityG?: number) =>
+    api.post<{ id: string }>(`/advisor/recurring/${id}/log`, {
+      nutritionDate,
+      mealSlot,
+      ...(quantityG !== undefined ? { quantityG } : {}),
+    }),
   deleteRecurring: (id: string) =>
     api.delete<{ ok: boolean }>(`/advisor/recurring/${id}`),
   transcribe: async (audioBase64: string, mimeType?: string): Promise<{ text: string }> => {
